@@ -36,8 +36,10 @@ def get_upbit_price(symbol):
         url = f"https://api.upbit.com/v1/ticker?markets={symbol}"
         res = requests.get(url)
         return float(res.json()[0]['trade_price'])
-    except:
+    except Exception as e:
+        print(f"❌ 오류 발생: {e}")
         return None
+
 
 # Upbit OHLCV
 def get_upbit_ohlcv(symbol, interval="minute60", count=120):
@@ -97,7 +99,7 @@ bybit_spot = get_bybit_all_symbols("spot")
 # 감시 루프
 while True:
     try:
-        now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         print("⏰", now)
 
         # Upbit 감시
@@ -113,7 +115,7 @@ while True:
             bbu_day = calc_bbu(df_day)
             if None not in [bbu60, bbu240, bbu_day] and price > bbu60 and price > bbu240 and price > bbu_day:
                 send_message(f"[Upbit] {symbol} 현재가: {price:.0f} → 볼린저 상단 돌파!")
-              time.sleep(0.5)
+            time.sleep(0.5)
 
         # Bybit 선물 감시
         for symbol in bybit_futures:
