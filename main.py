@@ -44,7 +44,7 @@ def get_upbit_price(symbol):
 # Upbit OHLCV
 def get_upbit_ohlcv(symbol, interval="minute60", count=120):
     try:
-        to = dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+        to = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         url = f"https://api.upbit.com/v1/candles/{interval}?market={symbol}&count={count}&to={to}"
         res = requests.get(url)
         data = res.json()
