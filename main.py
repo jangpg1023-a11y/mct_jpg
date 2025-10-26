@@ -116,7 +116,7 @@ while True:
             bbu240 = calc_bbu(df240)
             bbu_day = calc_bbu(df_day)
             if None not in [bbu60, bbu240, bbu_day] and price > bbu60 and price > bbu240 and price > bbu_day:
-                send_message(f"[Upbit] {symbol} 현재가: {price:.0f} → 볼린저 상단 돌파!")
+                send_message(f"[Upbit] {symbol} 현재가: {price:.0f}")
             time.sleep(1)
 
         # Bybit 선물 감시
@@ -131,7 +131,7 @@ while True:
             bbu240 = calc_bbu(df240)
             bbu_day = calc_bbu(df_day)
             if None not in [bbu60, bbu240, bbu_day] and price > bbu60 and price > bbu240 and price > bbu_day:
-                send_message(f"[Bybit 선물] {symbol} 현재가: {price:.2f} → 볼린저 상단 돌파!")
+                send_message(f"[Bybit 선물] {symbol} 현재가: {price:.2f}")
             time.sleep(1)
 
         # Bybit 현물 감시
@@ -146,7 +146,7 @@ while True:
             bbu240 = calc_bbu(df240)
             bbu_day = calc_bbu(df_day)
             if None not in [bbu60, bbu240, bbu_day] and price > bbu60 and price > bbu240 and price > bbu_day:
-                send_message(f"[Bybit 현물] {symbol} 현재가: {price:.2f} → 볼린저 상단 돌파!")
+                send_message(f"[Bybit 현물] {symbol} 현재가: {price:.2f}")
             time.sleep(1)
 
         time.sleep(1)
@@ -154,6 +154,7 @@ while True:
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
         time.sleep(1)
+
 
 
 
