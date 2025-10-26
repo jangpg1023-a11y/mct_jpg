@@ -2,6 +2,8 @@ import requests
 import pandas as pd
 import time
 import datetime as dt
+from keep_alive import keep_alive
+keep_alive()
 
 # 텔레그램 설정 (당신 방식 유지)
 bot_token = '8310701870:AAF_MnWZmzLUcMt83TBNJmQBeIQmubWOaro'
@@ -152,3 +154,4 @@ while True:
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
         time.sleep(5)
+
