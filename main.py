@@ -102,6 +102,7 @@ bybit_spot = get_bybit_all_symbols("spot")
 while True:
     try:
         now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        send_message("⏰", now)
         print("⏰", now)
 
         # Upbit 감시
@@ -149,9 +150,10 @@ while True:
                 send_message(f"[Bybit 현물] {symbol} 현재가: {price:.2f} → 볼린저 상단 돌파!")
             time.sleep(0.5)
 
-        time.sleep(5)
+        time.sleep(1)
 
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
-        time.sleep(5)
+        time.sleep(1)
+
 
