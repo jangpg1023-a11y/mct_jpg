@@ -102,7 +102,6 @@ bybit_spot = get_bybit_all_symbols("spot")
 while True:
     try:
         now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        send_message("⏰", now)
         print("⏰", now)
 
         # Upbit 감시
@@ -155,5 +154,6 @@ while True:
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
         time.sleep(1)
+
 
 
