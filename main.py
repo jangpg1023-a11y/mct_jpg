@@ -96,11 +96,6 @@ while True:
             bbu60, bbl60 = calc_bbu(df60), calc_bbl(df60)
             bbu240, bbl240 = calc_bbu(df240), calc_bbl(df240)
 
-            # 거래량 필터링 (최근 5분 평균 거래량 기준)
-            avg_vol = df5['volume'].tail(5).mean()
-            if avg_vol < 1000:
-                continue
-
             # Upbit 링크 생성
             link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{symbol}"
 
@@ -153,4 +148,5 @@ while True:
         print(alert)
         send_message(alert)
         time.sleep(5)
+
 
