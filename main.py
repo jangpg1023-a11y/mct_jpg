@@ -3,15 +3,14 @@ import pandas as pd
 import time
 import datetime as dt
 import requests
-from keep_alive import keep_alive
 import os
-
+from keep_alive import keep_alive
 
 keep_alive()
 
-# 텔레그램 설정
-bot_token = os.environ['bot_token']
-chat_id = os.environ['chat_id']
+# 텔레그램 설정 (환경 변수에서 불러오기)
+bot_token = os.environ['BOT_TOKEN']
+chat_id = os.environ['CHAT_ID']
 telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 
 def send_message(text):
@@ -34,7 +33,7 @@ def calc_bbl(df):
     return ma - 2 * std
 
 # 시작 메시지
-send_message("📡 Upbit 전체 종목 감시 시작 (볼린저밴드)")
+send_message("📡 Upbit 전체 종목 감시 시작 (볼린저밴드 + MA100 일봉 돌파)")
 
 # 종목 리스트 초기화
 upbit_tickers = pyupbit.get_tickers(fiat="KRW")
@@ -99,6 +98,20 @@ while True:
                 if should_alert(key):
                     send_message(f"[Upbit] {ticker} 현재가: {price:.0f} ⚠️ [M5/M15/M30 하단 이탈]\n📉 {link}")
 
+            # ✅ 일봉 기준 MA100 상향 돌파 감지
+            daily_df = pyupbit.get_ohlcv(ticker, interval="day", count=120)
+            if daily_df is not None and not daily_df.empty and len(daily_df) >= 101:
+                ma100 = daily_df['close'].rolling(100).mean()
+                prev_ma = ma100.iloc[-2]
+                curr_ma = ma100.iloc[-1]
+                prev_close = daily_df['close'].iloc[-2]
+                curr_close = daily_df['close'].iloc[-1]
+
+                if prev_close < prev_ma and curr_close > curr_ma:
+                    key = f"{ticker}_ma100_daily_cross"
+                    if should_alert(key):
+                        send_message(f"[Upbit] {ticker} 📈 일봉 MA100 상향 돌파!\n현재가: {curr_close:.0f}원\n🗓️ 차트: {link}")
+
             time.sleep(1)
 
         time.sleep(5)
@@ -106,4 +119,3 @@ while True:
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
         time.sleep(5)
-
