@@ -4,12 +4,14 @@ import time
 import datetime as dt
 import requests
 from keep_alive import keep_alive
+import os
+
 
 keep_alive()
 
 # 텔레그램 설정
-bot_token = '8310701870:AAF_MnWZmzLUcMt83TBNJmQBeIQmubWOaro'
-chat_id = '7510297803'
+bot_token = os.environ['bot_token']
+chat_id = os.environ['chat_id']
 telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 
 def send_message(text):
@@ -104,3 +106,4 @@ while True:
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
         time.sleep(5)
+
