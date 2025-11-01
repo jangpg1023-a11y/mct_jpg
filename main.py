@@ -64,7 +64,7 @@ def get_upbit_ohlcv(symbol, interval="minute60", count=120):
         return pd.DataFrame()
 
 # 시작 메시지
-send_message("📡 Upbit 전체 종목 감시 시작 (1시간, 4시간 기준)")
+send_message("📡 Upbit 전체 종목 감시 시작 (볼린저밴드)")
 
 # 종목 리스트 초기화
 upbit_symbols = get_upbit_all_markets()
@@ -153,3 +153,4 @@ while True:
         print(alert)
         send_message(alert)
         time.sleep(5)
+
