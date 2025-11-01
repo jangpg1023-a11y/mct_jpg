@@ -1,6 +1,4 @@
 pyupbit
 pandas
 requests
-selenium
-webdriver-manager
-Pillow
+
