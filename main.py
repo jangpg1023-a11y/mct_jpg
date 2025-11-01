@@ -69,11 +69,14 @@ send_message("📡 Upbit 전체 종목 감시 시작 (1시간, 4시간 기준)")
 # 종목 리스트 초기화
 upbit_symbols = get_upbit_all_markets()
 
+# 중복 알림 캐시
+alert_cache = {}
+
 # 감시 루프
 while True:
     try:
-        now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        print("⏰", now)
+        now = dt.datetime.now(dt.timezone.utc)
+        print("⏰", now.strftime("%Y-%m-%d %H:%M:%S"))
 
         for symbol in upbit_symbols:
             price = get_upbit_price(symbol)
@@ -87,41 +90,66 @@ while True:
                 continue
 
             # 볼린저 밴드 계산
-            bbu5 = calc_bbu(df5)
-            bbu15 = calc_bbu(df15)
-            bbu30 = calc_bbu(df30)
-            bbu60 = calc_bbu(df60)
-            bbu240 = calc_bbu(df240)
-            bbl60 = calc_bbl(df60)
-            bbl240 = calc_bbl(df240)
+            bbu5, bbl5 = calc_bbu(df5), calc_bbl(df5)
+            bbu15, bbl15 = calc_bbu(df15), calc_bbl(df15)
+            bbu30, bbl30 = calc_bbu(df30), calc_bbl(df30)
+            bbu60, bbl60 = calc_bbu(df60), calc_bbl(df60)
+            bbu240, bbl240 = calc_bbu(df240), calc_bbl(df240)
+
+            # 거래량 필터링 (최근 5분 평균 거래량 기준)
+            avg_vol = df5['volume'].tail(5).mean()
+            if avg_vol < 1000:
+                continue
 
             # Upbit 링크 생성
             link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{symbol}"
 
+            # 중복 알림 체크 함수
+            def should_alert(key):
+                last = alert_cache.get(key)
+                if not last or (now - last).total_seconds() > 1800:  # 30분
+                    alert_cache[key] = now
+                    return True
+                return False
+
             # 1시간/4시간 상단 돌파
             if None not in [bbu60, bbu240] and price > bbu60 and price > bbu240:
-                alert = f"[Upbit] {symbol} 현재가: {price:.0f} 🚀 [1H/4H 상단 돌파]\n📈 {link}"
-                print(alert)
-                send_message(alert)
+                key = f"{symbol}_bbu_60_240"
+                if should_alert(key):
+                    alert = f"[Upbit] {symbol} 현재가: {price:.0f} 🚀 [1H/4H 상단 돌파]\n📈 {link}"
+                    print(alert)
+                    send_message(alert)
 
             # 1시간/4시간 하단 이탈
             if None not in [bbl60, bbl240] and price < bbl60 and price < bbl240:
-                alert = f"[Upbit] {symbol} 현재가: {price:.0f} ⚠️ [1H/4H 하단 이탈]\n📉 {link}"
-                print(alert)
-                send_message(alert)
+                key = f"{symbol}_bbl_60_240"
+                if should_alert(key):
+                    alert = f"[Upbit] {symbol} 현재가: {price:.0f} ⚠️ [1H/4H 하단 이탈]\n📉 {link}"
+                    print(alert)
+                    send_message(alert)
 
             # 5/15/30분 상단 돌파
             if None not in [bbu5, bbu15, bbu30] and price > bbu5 and price > bbu15 and price > bbu30:
-                alert = f"[Upbit] {symbol} 현재가: {price:.0f} 🚀 [5/15/30분 상단 돌파]\n📈 {link}"
-                print(alert)
-                send_message(alert)
+                key = f"{symbol}_bbu_5_15_30"
+                if should_alert(key):
+                    alert = f"[Upbit] {symbol} 현재가: {price:.0f} 🚀 [M5/M15/M30 상단 돌파]\n📈 {link}"
+                    print(alert)
+                    send_message(alert)
+
+            # 5/15/30분 하단 이탈
+            if None not in [bbl5, bbl15, bbl30] and price < bbl5 and price < bbl15 and price < bbl30:
+                key = f"{symbol}_bbl_5_15_30"
+                if should_alert(key):
+                    alert = f"[Upbit] {symbol} 현재가: {price:.0f} ⚠️ [M5/M15/M30 하단 이탈]\n📉 {link}"
+                    print(alert)
+                    send_message(alert)
 
             time.sleep(1)
 
-        time.sleep(1)
+        time.sleep(5)
 
     except Exception as e:
         alert = f"❌ 오류 발생: {e}"
         print(alert)
         send_message(alert)
-        time.sleep(1)
+        time.sleep(5)
