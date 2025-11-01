@@ -1,4 +1,4 @@
 pyupbit
 pandas
 requests
-
+flask
