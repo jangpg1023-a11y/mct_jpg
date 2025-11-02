@@ -16,7 +16,7 @@ telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 def send_message(text):
     requests.post(telegram_url, data={'chat_id': chat_id, 'text': text})
 
-send_message("📡 Upbit 전체 종목 감시 시작\n(일봉 기준 최근 3일 돌파 조건)")
+send_message("📡 Upbit 전체 종목 감시 시작\n(일봉 기준 최근 3일 돌파 조건 + 주봉 양봉 필터)")
 
 upbit_tickers = pyupbit.get_tickers(fiat="KRW")
 
@@ -83,13 +83,29 @@ while True:
                 return False
 
             daily_df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
-            if daily_df is not None and not daily_df.empty and len(daily_df) >= 130:
+            weekly_df = pyupbit.get_ohlcv(ticker, interval="week", count=3)
+
+            if (
+                daily_df is not None and not daily_df.empty and len(daily_df) >= 130 and
+                weekly_df is not None and len(weekly_df) >= 2
+            ):
                 close = daily_df['close']
                 ma7 = close.rolling(7).mean()
                 ma120 = close.rolling(120).mean()
                 std = close.rolling(120).std()
                 bbd = ma120 - 2 * std
                 bbu = ma120 + 2 * std
+
+                # 주봉 양봉 여부 확인
+                this_week_open = weekly_df['open'].iloc[-1]
+                this_week_close = weekly_df['close'].iloc[-1]
+                last_week_open = weekly_df['open'].iloc[-2]
+                last_week_close = weekly_df['close'].iloc[-2]
+
+                is_weekly_bullish = (
+                    this_week_close > this_week_open or
+                    last_week_close > last_week_open
+                )
 
                 for i in check_d_indices:
                     prev = -(i + 2)
@@ -112,22 +128,22 @@ while True:
                         curr_ma7, prev_ma120, curr_ma120
                     ]):
                         key_bbd = f"{ticker}_D{i}_bbd_ma7"
-                        if prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
+                        if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
                             if should_alert(key_bbd):
                                 bbd_dict[i].append(ticker)
-                                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{link}")
+                                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n{link}")
 
                         key_ma120 = f"{ticker}_D{i}_ma120_ma7"
                         if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                             if should_alert(key_ma120):
                                 ma120_dict[i].append(ticker)
-                                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{link}")
+                                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n{link}")
 
                         key_bbu = f"{ticker}_D{i}_bollinger_upper"
                         if prev_close < prev_bbu and curr_close > curr_bbu:
                             if should_alert(key_bbu):
                                 bbu_dict[i].append(ticker)
-                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{link}")
+                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n{link}")
 
             time.sleep(10)
 
