@@ -79,13 +79,13 @@ while True:
                         key_bbl = f"{ticker}_D{i}_bollinger_ma5"
                         if prev_close < prev_bbl and curr_close > curr_bbl and curr_close > curr_ma5:
                             if should_alert(key_bbl):
-                                send_message(f"📈하단 + MA5 돌파 (D-{i})\n{link}")
+                                send_message(f"bbl + MA5 돌파 (D-{i})\n{link}")
 
                         # MA100 + MA5 돌파
                         key_ma100 = f"{ticker}_D{i}_ma100_ma5"
                         if prev_close < prev_ma100 and curr_close > curr_ma100 and curr_close > curr_ma5:
                             if should_alert(key_ma100):
-                                send_message(f"📈MA100 + MA5 돌파 (D-{i})\n{link}")
+                                send_message(f"ma100 + MA5 돌파 (D-{i})\n{link}")
 
             time.sleep(5)
 
@@ -94,3 +94,4 @@ while True:
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
         time.sleep(5)
+
