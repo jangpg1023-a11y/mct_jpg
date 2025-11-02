@@ -16,7 +16,7 @@ telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 def send_message(text):
     requests.post(telegram_url, data={'chat_id': chat_id, 'text': text})
 
-send_message("📡 Upbit 전체 종목 감시 시작\n- 일봉 기준 최근 3일 돌파 조건 -")
+send_message("📡 Upbit 전체 종목 감시 시작\n(일봉 기준 최근 3일 돌파 조건)")
 
 upbit_tickers = pyupbit.get_tickers(fiat="KRW")
 
@@ -27,17 +27,6 @@ force_full_scan = True  # 재시작 시 강제 검사
 bbd_dict = {2: [], 1: [], 0: []}
 ma120_dict = {2: [], 1: [], 0: []}
 bbu_dict = {2: [], 1: [], 0: []}
-
-# 가격대별 오차 허용 함수
-def get_tolerance(price):
-    if price < 10:
-        return 0.01
-    elif price < 100:
-        return 0.005
-    elif price < 1000:
-        return 0.002
-    else:
-        return 0.001
 
 while True:
     try:
@@ -122,22 +111,20 @@ while True:
                         prev_bbu, curr_bbu,
                         curr_ma7, prev_ma120, curr_ma120
                     ]):
-                        tol = get_tolerance(curr_close)
-
                         key_bbd = f"{ticker}_D{i}_bbd_ma7"
-                        if prev_close < prev_bbd * (1 + tol) and curr_close > curr_bbd * (1 - tol) and curr_close > curr_ma7 * (1 - tol):
+                        if prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
                             if should_alert(key_bbd):
                                 bbd_dict[i].append(ticker)
                                 send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{link}")
 
                         key_ma120 = f"{ticker}_D{i}_ma120_ma7"
-                        if prev_close < prev_ma120 * (1 + tol) and curr_close > curr_ma120 * (1 - tol) and curr_close > curr_ma7 * (1 - tol):
+                        if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                             if should_alert(key_ma120):
                                 ma120_dict[i].append(ticker)
                                 send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{link}")
 
                         key_bbu = f"{ticker}_D{i}_bollinger_upper"
-                        if prev_close < prev_bbu * (1 + tol) and curr_close > curr_bbu * (1 - tol):
+                        if prev_close < prev_bbu and curr_close > curr_bbu:
                             if should_alert(key_bbu):
                                 bbu_dict[i].append(ticker)
                                 send_message(f"📈 BBU 상단 돌파 (D-{i})\n{link}")
