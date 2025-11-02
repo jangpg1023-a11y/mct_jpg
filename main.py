@@ -59,13 +59,13 @@ while True:
                 return False
 
             # 일봉 기준 조건 계산
-            daily_df = pyupbit.get_ohlcv(ticker, interval="day", count=125)
-            if daily_df is not None and not daily_df.empty and len(daily_df) >= 105:
+            daily_df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
+            if daily_df is not None and not daily_df.empty and len(daily_df) >= 130:
                 close = daily_df['close']
-                ma5 = close.rolling(5).mean()
-                ma100 = close.rolling(100).mean()
-                std = close.rolling(100).std()
-                bbl = ma100 - 2 * std
+                ma7 = close.rolling(7).mean()
+                ma120 = close.rolling(120).mean()
+                std = close.rolling(120).std()
+                bbl = ma120 - 2 * std
 
                 for i in check_d_indices:
                     prev = -(i + 2)
@@ -75,24 +75,24 @@ while True:
                     curr_close = close.iloc[curr]
                     prev_bbl = bbl.iloc[prev]
                     curr_bbl = bbl.iloc[curr]
-                    curr_ma5 = ma5.iloc[curr]
-                    prev_ma100 = ma100.iloc[prev]
-                    curr_ma100 = ma100.iloc[curr]
+                    curr_ma7 = ma7.iloc[curr]
+                    prev_ma120 = ma120.iloc[prev]
+                    curr_ma120 = ma120.iloc[curr]
 
                     # NaN 방어 처리
-                    if all(pd.notna(x) for x in [prev_close, prev_bbl, curr_close, curr_bbl, curr_ma5, prev_ma100, curr_ma100]):
+                    if all(pd.notna(x) for x in [prev_close, prev_bbl, curr_close, curr_bbl, curr_ma7, prev_ma120, curr_ma120]):
 
                         # 볼린저 하단 + MA5 돌파
-                        key_bbl = f"{ticker}_D{i}_bollinger_ma5"
-                        if prev_close < prev_bbl and curr_close > curr_bbl and curr_close > curr_ma5:
+                        key_bbl = f"{ticker}_D{i}_bollinger_ma7"
+                        if prev_close < prev_bbl and curr_close > curr_bbl and curr_close > curr_ma7:
                             if should_alert(key_bbl):
-                                send_message(f"🔼 bbl + MA5 돌파 (D-{i})\n{link}")
+                                send_message(f"🔼 bbl + MA7 돌파 (D-{i})\n{link}")
 
-                        # MA100 + MA5 돌파
-                        key_ma100 = f"{ticker}_D{i}_ma100_ma5"
-                        if prev_close < prev_ma100 and curr_close > curr_ma100 and curr_close > curr_ma5:
-                            if should_alert(key_ma100):
-                                send_message(f"📈 ma100 + MA5 돌파 (D-{i})\n{link}")
+                        # MA120 + MA5 돌파
+                        key_ma120 = f"{ticker}_D{i}_ma120_ma7"
+                        if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
+                            if should_alert(key_ma120):
+                                send_message(f"📈 ma120 + MA7 돌파 (D-{i})\n{link}")
 
             time.sleep(5)
 
@@ -101,4 +101,5 @@ while True:
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
         time.sleep(5)
+
 
