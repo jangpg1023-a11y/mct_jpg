@@ -8,7 +8,6 @@ from keep_alive import keep_alive
 
 keep_alive()
 
-# 텔레그램 설정
 bot_token = os.environ['BOT_TOKEN']
 chat_id = os.environ['CHAT_ID']
 telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
@@ -22,9 +21,8 @@ send_message("📡 Upbit 전체 종목 감시 시작\n(일봉 기준 최근 3일
 upbit_tickers = pyupbit.get_tickers(fiat="KRW")
 
 alert_cache = {}
-last_cache_reset = dt.datetime.now(dt.timezone.utc)
+last_cache_reset = None  # 재시작 시 무조건 검사
 
-# 조건별 종목 리스트 (D-인덱스 포함)
 bbd_dict = {2: [], 1: [], 0: []}
 ma120_dict = {2: [], 1: [], 0: []}
 bbu_dict = {2: [], 1: [], 0: []}
@@ -35,7 +33,7 @@ while True:
         kst_now = now.astimezone(dt.timezone(dt.timedelta(hours=9)))
 
         # 캐시 초기화 및 요약 알림
-        if (now - last_cache_reset).total_seconds() > 14400:
+        if last_cache_reset and (now - last_cache_reset).total_seconds() > 14400:
             alert_cache.clear()
 
             def format_dict(title, data_dict):
@@ -54,14 +52,16 @@ while True:
             if summary.strip() != "📊 [4시간 요약 알림]":
                 send_message(summary)
 
-            # 초기화
             bbd_dict = {2: [], 1: [], 0: []}
             ma120_dict = {2: [], 1: [], 0: []}
             bbu_dict = {2: [], 1: [], 0: []}
             last_cache_reset = now
 
         # 검사 대상 인덱스 결정
-        if (now - last_cache_reset).total_seconds() < 60:
+        if last_cache_reset is None:
+            check_d_indices = [2, 1, 0]  # 재시작 직후 무조건 검사
+            last_cache_reset = now
+        elif (now - last_cache_reset).total_seconds() < 60:
             check_d_indices = [2, 1, 0]
         elif kst_now.minute == 0 and kst_now.hour in [9, 13, 17, 21]:
             check_d_indices = [2, 1, 0]
