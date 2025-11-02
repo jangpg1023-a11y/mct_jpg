@@ -96,15 +96,12 @@ while True:
                 bbd = ma120 - 2 * std
                 bbu = ma120 + 2 * std
 
-                # 주봉 양봉 여부 확인
-                this_week_open = weekly_df['open'].iloc[-1]
-                this_week_close = weekly_df['close'].iloc[-1]
+                # 주봉 양봉 여부 확인 (지난 주 또는 이번 주 현재가 기준)
                 last_week_open = weekly_df['open'].iloc[-2]
                 last_week_close = weekly_df['close'].iloc[-2]
-
                 is_weekly_bullish = (
-                    this_week_close > this_week_open or
-                    last_week_close > last_week_open
+                    last_week_close > last_week_open or
+                    price > last_week_close
                 )
 
                 for i in check_d_indices:
@@ -131,19 +128,19 @@ while True:
                         if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
                             if should_alert(key_bbd):
                                 bbd_dict[i].append(ticker)
-                                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n{link}")
+                                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{link}")
 
                         key_ma120 = f"{ticker}_D{i}_ma120_ma7"
                         if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                             if should_alert(key_ma120):
                                 ma120_dict[i].append(ticker)
-                                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n{link}")
+                                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{link}")
 
                         key_bbu = f"{ticker}_D{i}_bollinger_upper"
                         if prev_close < prev_bbu and curr_close > curr_bbu:
                             if should_alert(key_bbu):
                                 bbu_dict[i].append(ticker)
-                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n{link}")
+                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{{link}")
 
             time.sleep(10)
 
