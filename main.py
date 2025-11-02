@@ -140,7 +140,7 @@ while True:
                         if prev_close < prev_bbu and curr_close > curr_bbu:
                             if should_alert(key_bbu):
                                 bbu_dict[i].append(ticker)
-                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{{link}")
+                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{link}")
 
             time.sleep(10)
 
@@ -148,3 +148,4 @@ while True:
 
     except Exception:
         time.sleep(10)
+
