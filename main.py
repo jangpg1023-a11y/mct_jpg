@@ -17,34 +17,56 @@ def send_message(text):
     print(text)
     requests.post(telegram_url, data={'chat_id': chat_id, 'text': text})
 
-# 시작 메시지
 send_message("📡 Upbit 전체 종목 감시 시작\n(일봉 기준 최근 3일 돌파 조건)")
 
-# 종목 리스트
 upbit_tickers = pyupbit.get_tickers(fiat="KRW")
 
-# 중복 알림 캐시
 alert_cache = {}
 last_cache_reset = dt.datetime.now(dt.timezone.utc)
 
-# 감시 루프
+# 조건별 종목 리스트 (D-인덱스 포함)
+bbd_dict = {2: [], 1: [], 0: []}
+ma120_dict = {2: [], 1: [], 0: []}
+bbu_dict = {2: [], 1: [], 0: []}
+
 while True:
     try:
         now = dt.datetime.now(dt.timezone.utc)
         kst_now = now.astimezone(dt.timezone(dt.timedelta(hours=9)))
 
-        # 4시간마다 캐시 초기화
+        # 캐시 초기화 및 요약 알림
         if (now - last_cache_reset).total_seconds() > 14400:
             alert_cache.clear()
+
+            def format_dict(title, data_dict):
+                lines = []
+                for d in [2, 1, 0]:
+                    if data_dict[d]:
+                        tickers = ", ".join(data_dict[d])
+                        lines.append(f"- D-{d}: {tickers}")
+                return f"\n{title}:\n" + "\n".join(lines) if lines else ""
+
+            summary = "📊 [4시간 요약 알림]\n"
+            summary += format_dict("📉 BBD + MA7 돌파", bbd_dict)
+            summary += format_dict("➖ MA120 + MA7 돌파", ma120_dict)
+            summary += format_dict("📈 BBU 상단 돌파", bbu_dict)
+
+            if summary.strip() != "📊 [4시간 요약 알림]":
+                send_message(summary)
+
+            # 초기화
+            bbd_dict = {2: [], 1: [], 0: []}
+            ma120_dict = {2: [], 1: [], 0: []}
+            bbu_dict = {2: [], 1: [], 0: []}
             last_cache_reset = now
 
         # 검사 대상 인덱스 결정
         if (now - last_cache_reset).total_seconds() < 60:
-            check_d_indices = [2, 1, 0]  # 캐시 초기화 직후
+            check_d_indices = [2, 1, 0]
         elif kst_now.minute == 0 and kst_now.hour in [9, 13, 17, 21]:
-            check_d_indices = [2, 1, 0]  # 정각 검사
+            check_d_indices = [2, 1, 0]
         else:
-            check_d_indices = [0]  # 실시간 감시
+            check_d_indices = [0]
 
         for ticker in upbit_tickers:
             price = pyupbit.get_current_price(ticker)
@@ -60,15 +82,14 @@ while True:
                     return True
                 return False
 
-            # 일봉 기준 조건 계산
             daily_df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
             if daily_df is not None and not daily_df.empty and len(daily_df) >= 130:
                 close = daily_df['close']
                 ma7 = close.rolling(7).mean()
                 ma120 = close.rolling(120).mean()
                 std = close.rolling(120).std()
-                bbd = ma120 - 2 * std  # 볼린저 하단 → BBD
-                bbu = ma120 + 2 * std  # 볼린저 상단
+                bbd = ma120 - 2 * std
+                bbu = ma120 + 2 * std
 
                 for i in check_d_indices:
                     prev = -(i + 2)
@@ -84,7 +105,6 @@ while True:
                     prev_ma120 = ma120.iloc[prev]
                     curr_ma120 = ma120.iloc[curr]
 
-                    # NaN 방어 처리
                     if all(pd.notna(x) for x in [
                         prev_close, curr_close,
                         prev_bbd, curr_bbd,
@@ -92,23 +112,20 @@ while True:
                         curr_ma7, prev_ma120, curr_ma120
                     ]):
 
-                        # BBD + MA7 돌파
                         key_bbd = f"{ticker}_D{i}_bbd_ma7"
                         if prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
                             if should_alert(key_bbd):
-                                send_message(f"📉 BBD + MA7 돌파 (D-{i}) \n {link}")
+                                bbd_dict[i].append(ticker)
 
-                        # MA120 + MA7 돌파
                         key_ma120 = f"{ticker}_D{i}_ma120_ma7"
                         if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                             if should_alert(key_ma120):
-                                send_message(f"➖ ma120 + MA7 돌파 (D-{i}) \n {link}")
+                                ma120_dict[i].append(ticker)
 
-                        # 볼린저 상단 돌파
                         key_bbu = f"{ticker}_D{i}_bollinger_upper"
                         if prev_close < prev_bbu and curr_close > curr_bbu:
                             if should_alert(key_bbu):
-                                send_message(f"📈 bbu 돌파 (D-{i}) \n {link}")
+                                bbu_dict[i].append(ticker)
 
             time.sleep(5)
 
