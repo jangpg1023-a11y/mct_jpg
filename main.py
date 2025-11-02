@@ -31,11 +31,18 @@ last_cache_reset = dt.datetime.now(dt.timezone.utc)
 while True:
     try:
         now = dt.datetime.now(dt.timezone.utc)
+        kst_now = now.astimezone(dt.timezone(dt.timedelta(hours=9)))
 
         # 4시간마다 캐시 초기화
         if (now - last_cache_reset).total_seconds() > 14400:
             alert_cache.clear()
             last_cache_reset = now
+
+        # 검사 대상 인덱스 결정
+        if kst_now.minute == 0 and kst_now.hour in [9, 13, 17, 21]:
+            check_d_indices = [2, 1, 0]  # 정각 검사 (새벽 제외)
+        else:
+            check_d_indices = [0]  # D-0만 실시간 감시
 
         for ticker in upbit_tickers:
             price = pyupbit.get_current_price(ticker)
@@ -60,7 +67,7 @@ while True:
                 std = close.rolling(100).std()
                 bbl = ma100 - 2 * std
 
-                for i in [2, 1, 0]:
+                for i in check_d_indices:
                     prev = -(i + 2)
                     curr = -(i + 1)
 
@@ -79,13 +86,13 @@ while True:
                         key_bbl = f"{ticker}_D{i}_bollinger_ma5"
                         if prev_close < prev_bbl and curr_close > curr_bbl and curr_close > curr_ma5:
                             if should_alert(key_bbl):
-                                send_message(f"bbl + MA5 돌파 (D-{i})\n{link}")
+                                send_message(f"{🔼 bbl + MA5 돌파 (D-{i})\n{link}")
 
                         # MA100 + MA5 돌파
                         key_ma100 = f"{ticker}_D{i}_ma100_ma5"
                         if prev_close < prev_ma100 and curr_close > curr_ma100 and curr_close > curr_ma5:
                             if should_alert(key_ma100):
-                                send_message(f"ma100 + MA5 돌파 (D-{i})\n{link}")
+                                send_message(f"📈 ma100 + MA5 돌파 (D-{i})\n{link}")
 
             time.sleep(5)
 
@@ -94,4 +101,3 @@ while True:
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
         time.sleep(5)
-
