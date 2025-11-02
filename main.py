@@ -39,10 +39,12 @@ while True:
             last_cache_reset = now
 
         # 검사 대상 인덱스 결정
-        if kst_now.minute == 0 and kst_now.hour in [9, 13, 17, 21]:
-            check_d_indices = [2, 1, 0]  # 정각 검사 (새벽 제외)
+        if (now - last_cache_reset).total_seconds() < 60:
+            check_d_indices = [2, 1, 0]  # 캐시 초기화 직후
+        elif kst_now.minute == 0 and kst_now.hour in [9, 13, 17, 21]:
+            check_d_indices = [2, 1, 0]  # 정각 검사
         else:
-            check_d_indices = [0]  # D-0만 실시간 감시
+            check_d_indices = [0]  # 실시간 감시
 
         for ticker in upbit_tickers:
             price = pyupbit.get_current_price(ticker)
@@ -65,7 +67,7 @@ while True:
                 ma7 = close.rolling(7).mean()
                 ma120 = close.rolling(120).mean()
                 std = close.rolling(120).std()
-                bbl = ma120 - 2 * std
+                bbd = ma120 - 2 * std  # 볼린저 하단 → BBD
                 bbu = ma120 + 2 * std  # 볼린저 상단
 
                 for i in check_d_indices:
@@ -74,8 +76,8 @@ while True:
 
                     prev_close = close.iloc[prev]
                     curr_close = close.iloc[curr]
-                    prev_bbl = bbl.iloc[prev]
-                    curr_bbl = bbl.iloc[curr]
+                    prev_bbd = bbd.iloc[prev]
+                    curr_bbd = bbd.iloc[curr]
                     prev_bbu = bbu.iloc[prev]
                     curr_bbu = bbu.iloc[curr]
                     curr_ma7 = ma7.iloc[curr]
@@ -85,16 +87,16 @@ while True:
                     # NaN 방어 처리
                     if all(pd.notna(x) for x in [
                         prev_close, curr_close,
-                        prev_bbl, curr_bbl,
+                        prev_bbd, curr_bbd,
                         prev_bbu, curr_bbu,
                         curr_ma7, prev_ma120, curr_ma120
                     ]):
 
-                        # 볼린저 하단 + MA7 돌파
-                        key_bbl = f"{ticker}_D{i}_bollinger_ma7"
-                        if prev_close < prev_bbl and curr_close > curr_bbl and curr_close > curr_ma7:
-                            if should_alert(key_bbl):
-                                send_message(f"📉 bbl + MA7 돌파 (D-{i}) \n {link}")
+                        # BBD + MA7 돌파
+                        key_bbd = f"{ticker}_D{i}_bbd_ma7"
+                        if prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
+                            if should_alert(key_bbd):
+                                send_message(f"📉 BBD + MA7 돌파 (D-{i}) \n {link}")
 
                         # MA120 + MA7 돌파
                         key_ma120 = f"{ticker}_D{i}_ma120_ma7"
