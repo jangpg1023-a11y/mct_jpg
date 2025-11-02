@@ -66,6 +66,7 @@ while True:
                 ma120 = close.rolling(120).mean()
                 std = close.rolling(120).std()
                 bbl = ma120 - 2 * std
+                bbu = ma120 + 2 * std  # 볼린저 상단
 
                 for i in check_d_indices:
                     prev = -(i + 2)
@@ -75,24 +76,37 @@ while True:
                     curr_close = close.iloc[curr]
                     prev_bbl = bbl.iloc[prev]
                     curr_bbl = bbl.iloc[curr]
+                    prev_bbu = bbu.iloc[prev]
+                    curr_bbu = bbu.iloc[curr]
                     curr_ma7 = ma7.iloc[curr]
                     prev_ma120 = ma120.iloc[prev]
                     curr_ma120 = ma120.iloc[curr]
 
                     # NaN 방어 처리
-                    if all(pd.notna(x) for x in [prev_close, prev_bbl, curr_close, curr_bbl, curr_ma7, prev_ma120, curr_ma120]):
+                    if all(pd.notna(x) for x in [
+                        prev_close, curr_close,
+                        prev_bbl, curr_bbl,
+                        prev_bbu, curr_bbu,
+                        curr_ma7, prev_ma120, curr_ma120
+                    ]):
 
-                        # 볼린저 하단 + MA5 돌파
+                        # 볼린저 하단 + MA7 돌파
                         key_bbl = f"{ticker}_D{i}_bollinger_ma7"
                         if prev_close < prev_bbl and curr_close > curr_bbl and curr_close > curr_ma7:
                             if should_alert(key_bbl):
-                                send_message(f"🔼 bbl + MA7 돌파 (D-{i})\n{link}")
+                                send_message(f"📉 bbl + MA7 돌파 (D-{i}) \n {link}")
 
-                        # MA120 + MA5 돌파
+                        # MA120 + MA7 돌파
                         key_ma120 = f"{ticker}_D{i}_ma120_ma7"
                         if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                             if should_alert(key_ma120):
-                                send_message(f"📈 ma120 + MA7 돌파 (D-{i})\n{link}")
+                                send_message(f"➖ ma120 + MA7 돌파 (D-{i}) \n {link}")
+
+                        # 볼린저 상단 돌파
+                        key_bbu = f"{ticker}_D{i}_bollinger_upper"
+                        if prev_close < prev_bbu and curr_close > curr_bbu:
+                            if should_alert(key_bbu):
+                                send_message(f"📈 bbu 돌파 (D-{i}) \n {link}")
 
             time.sleep(5)
 
@@ -101,5 +115,3 @@ while True:
     except Exception as e:
         send_message(f"❌ 오류 발생: {e}")
         time.sleep(5)
-
-
