@@ -43,15 +43,14 @@ while True:
                     if data_dict[d]:
                         tickers = ", ".join(data_dict[d])
                         lines.append(f"- D-{d}: {tickers}")
-                return f"\n{title}:\n" + "\n".join(lines) if lines else ""
+                return f"\n{title}:\n" + "\n".join(lines) if lines else f"\n{title}: 없음"
 
             summary = "📊 [4시간 요약 알림]\n"
             summary += format_dict("📉 BBD + MA7 돌파", bbd_dict)
             summary += format_dict("➖ MA120 + MA7 돌파", ma120_dict)
             summary += format_dict("📈 BBU 상단 돌파", bbu_dict)
 
-            if summary.strip() != "📊 [4시간 요약 알림]":
-                send_message(summary)
+            send_message(summary)
 
             bbd_dict = {2: [], 1: [], 0: []}
             ma120_dict = {2: [], 1: [], 0: []}
@@ -60,11 +59,9 @@ while True:
             force_full_scan = True  # 다음 루프에서 강제 검사
 
         # 검사 대상 인덱스 결정
-        if force_full_scan:
+        if force_full_scan or (last_cache_reset and (now - last_cache_reset).total_seconds() < 60):
             check_d_indices = [2, 1, 0]
             force_full_scan = False
-        elif last_cache_reset and (now - last_cache_reset).total_seconds() < 60:
-            check_d_indices = [2, 1, 0]
         else:
             check_d_indices = [0]
 
@@ -128,19 +125,19 @@ while True:
                         if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
                             if should_alert(key_bbd):
                                 bbd_dict[i].append(ticker)
-                                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{link}")
+                                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n{link}")
 
                         key_ma120 = f"{ticker}_D{i}_ma120_ma7"
                         if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                             if should_alert(key_ma120):
                                 ma120_dict[i].append(ticker)
-                                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{link}")
+                                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n{link}")
 
                         key_bbu = f"{ticker}_D{i}_bollinger_upper"
                         if prev_close < prev_bbu and curr_close > curr_bbu:
                             if should_alert(key_bbu):
                                 bbu_dict[i].append(ticker)
-                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{link}")
+                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n{link}")
 
             time.sleep(10)
 
@@ -148,4 +145,3 @@ while True:
 
     except Exception:
         time.sleep(10)
-
