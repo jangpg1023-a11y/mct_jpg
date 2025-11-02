@@ -16,12 +16,13 @@ telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 def send_message(text):
     requests.post(telegram_url, data={'chat_id': chat_id, 'text': text})
 
-send_message("📡 Upbit 전체 종목 감시 시작\n(일봉 기준 최근 3일 돌파 조건)")
+send_message("📡 Upbit 전체 종목 감시 시작\n- 일봉 기준 최근 3일 돌파 조건 -")
 
 upbit_tickers = pyupbit.get_tickers(fiat="KRW")
 
 alert_cache = {}
-last_cache_reset = None  # 재시작 시 무조건 검사
+last_cache_reset = None
+force_full_scan = True  # 재시작 시 강제 검사
 
 bbd_dict = {2: [], 1: [], 0: []}
 ma120_dict = {2: [], 1: [], 0: []}
@@ -30,13 +31,13 @@ bbu_dict = {2: [], 1: [], 0: []}
 # 가격대별 오차 허용 함수
 def get_tolerance(price):
     if price < 10:
-        return 0.01  # 1% 오차
+        return 0.01
     elif price < 100:
         return 0.005
     elif price < 1000:
         return 0.002
     else:
-        return 0.001  # 0.1% 오차
+        return 0.001
 
 while True:
     try:
@@ -67,14 +68,13 @@ while True:
             ma120_dict = {2: [], 1: [], 0: []}
             bbu_dict = {2: [], 1: [], 0: []}
             last_cache_reset = now
+            force_full_scan = True  # 다음 루프에서 강제 검사
 
         # 검사 대상 인덱스 결정
-        if last_cache_reset is None:
+        if force_full_scan:
             check_d_indices = [2, 1, 0]
-            last_cache_reset = now
-        elif (now - last_cache_reset).total_seconds() < 60:
-            check_d_indices = [2, 1, 0]
-        elif kst_now.minute == 0 and kst_now.hour in [9, 13, 17, 21]:
+            force_full_scan = False
+        elif last_cache_reset and (now - last_cache_reset).total_seconds() < 60:
             check_d_indices = [2, 1, 0]
         else:
             check_d_indices = [0]
@@ -82,7 +82,7 @@ while True:
         for ticker in upbit_tickers:
             price = pyupbit.get_current_price(ticker)
             if price is None or price < 1:
-                continue  # 1원 미만 종목 제외
+                continue
 
             link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
 
@@ -128,20 +128,23 @@ while True:
                         if prev_close < prev_bbd * (1 + tol) and curr_close > curr_bbd * (1 - tol) and curr_close > curr_ma7 * (1 - tol):
                             if should_alert(key_bbd):
                                 bbd_dict[i].append(ticker)
+                                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{link}")
 
                         key_ma120 = f"{ticker}_D{i}_ma120_ma7"
                         if prev_close < prev_ma120 * (1 + tol) and curr_close > curr_ma120 * (1 - tol) and curr_close > curr_ma7 * (1 - tol):
                             if should_alert(key_ma120):
                                 ma120_dict[i].append(ticker)
+                                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{link}")
 
                         key_bbu = f"{ticker}_D{i}_bollinger_upper"
                         if prev_close < prev_bbu * (1 + tol) and curr_close > curr_bbu * (1 - tol):
                             if should_alert(key_bbu):
                                 bbu_dict[i].append(ticker)
+                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{link}")
 
             time.sleep(10)
 
         time.sleep(10)
 
-    except Exception as e:
+    except Exception:
         time.sleep(10)
