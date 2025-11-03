@@ -139,7 +139,8 @@ def check_conditions(ticker, price):
             continue
 
         link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
-        key_prefix = f"{ticker}_D{i}_"
+        date_str = dt.datetime.now().date()
+        key_prefix = f"{ticker}_D{i}_{date_str}_"
 
         # BBD + MA7 돌파
         key_bbd = key_prefix + "bbd_ma7"
