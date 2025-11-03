@@ -10,8 +10,8 @@ from keep_alive import keep_alive
 keep_alive()
 
 # 텔레그램 설정
-bot_token = os.environ['BOT_TOKEN']
-chat_id = os.environ['CHAT_ID']
+bot_token = os.getenv('BOT_TOKEN')
+chat_id = os.getenv('CHAT_ID')
 telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 
 def send_message(text):
@@ -26,6 +26,9 @@ ticker_codes = [f"KRW-{t.split('-')[1]}" if '-' in t else t for t in tickers]
 # 알림 캐시
 alert_cache = {}
 
+# OHLCV 캐시
+ohlcv_cache = {}
+
 def should_alert(key):
     now = dt.datetime.now()
     last = alert_cache.get(key)
@@ -34,14 +37,28 @@ def should_alert(key):
         return True
     return False
 
+def get_ohlcv_cached(ticker, interval, count):
+    key = f"{ticker}_{interval}_{count}"
+    now = dt.datetime.now()
+    cached = ohlcv_cache.get(key)
+    if cached and (now - cached['time']).total_seconds() < 300:
+        return cached['data']
+    df = pyupbit.get_ohlcv(ticker, interval=interval, count=count)
+    if df is not None:
+        ohlcv_cache[key] = {'data': df, 'time': now}
+    return df
+
 def check_conditions(ticker, price):
-    df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
-    weekly_df = pyupbit.get_ohlcv(ticker, interval="week", count=3)
+    df = get_ohlcv_cached(ticker, interval="day", count=130)
+    weekly_df = get_ohlcv_cached(ticker, interval="week", count=3)
 
     if df is None or weekly_df is None or len(df) < 130 or len(weekly_df) < 2:
         return
 
     close = df['close']
+    open_price = df['open'].iloc[-1]
+    change_pct = ((price - open_price) / open_price) * 100
+
     ma7 = close.rolling(7).mean()
     ma120 = close.rolling(120).mean()
     std = close.rolling(120).std()
@@ -52,7 +69,7 @@ def check_conditions(ticker, price):
     last_week_close = weekly_df['close'].iloc[-2]
     is_weekly_bullish = last_week_close > last_week_open or price > last_week_close
 
-    for i in [0]:  # 실시간이므로 D-0만 검사
+    for i in [0]:
         prev = -(i + 2)
         curr = -(i + 1)
 
@@ -70,6 +87,7 @@ def check_conditions(ticker, price):
             continue
 
         link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
+        change_str = f"{change_pct:+.2f}%"
 
         if all(pd.notna(x) for x in [
             prev_close, curr_close,
@@ -80,17 +98,17 @@ def check_conditions(ticker, price):
             key_bbd = f"{ticker}_D{i}_bbd_ma7"
             if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
                 if should_alert(key_bbd):
-                    send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n{link}")
+                    send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
 
             key_ma120 = f"{ticker}_D{i}_ma120_ma7"
             if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                 if should_alert(key_ma120):
-                    send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n{link}")
+                    send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
 
             key_bbu = f"{ticker}_D{i}_bollinger_upper"
             if prev_close < prev_bbu and curr_close > curr_bbu:
                 if should_alert(key_bbu):
-                    send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n{link}")
+                    send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
 
 def on_message(ws, message):
     data = json.loads(message)[0]
@@ -107,10 +125,29 @@ def on_open(ws):
     }]
     ws.send(json.dumps(payload))
 
+def on_error(ws, error):
+    send_message(f"⚠️ WebSocket 오류 발생: {error}")
+
+def on_close(ws, close_status_code, close_msg):
+    send_message("🔌 WebSocket 연결 종료됨. 재시도 중...")
+    reconnect()
+
+def reconnect():
+    ws = websocket.WebSocketApp(
+        "wss://api.upbit.com/websocket/v1",
+        on_message=on_message,
+        on_open=on_open,
+        on_error=on_error,
+        on_close=on_close
+    )
+    ws.run_forever()
+
 ws = websocket.WebSocketApp(
     "wss://api.upbit.com/websocket/v1",
     on_message=on_message,
-    on_open=on_open
+    on_open=on_open,
+    on_error=on_error,
+    on_close=on_close
 )
 
 ws.run_forever()
