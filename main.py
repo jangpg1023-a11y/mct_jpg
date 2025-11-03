@@ -24,23 +24,31 @@ send_message("📡 pyupbit 기반 감시 시작")
 # 종목 리스트
 tickers = pyupbit.get_tickers(fiat="KRW")
 
-# 알림 캐시
+# 캐시
 alert_cache = {}
-
-# OHLCV 캐시
 ohlcv_cache = {}
-
-# 요약 캐시
 summary_log = {0: [], 1: [], 2: []}
 last_summary_time = time.time()
 
 def should_alert(key):
     now = dt.datetime.now()
     last = alert_cache.get(key)
-    if not last or (now - last).total_seconds() > 1800:
+
+    if "_D0_" in key:
+        limit = 1800  # 30분
+    elif "_D1_" in key or "_D2_" in key:
+        limit = 14400  # 4시간
+
+    if not last or (now - last).total_seconds() > limit:
         alert_cache[key] = now
         return True
     return False
+
+def clear_d0_cache():
+    now = dt.datetime.now()
+    for key in list(alert_cache.keys()):
+        if "_D0_" in key and (now - alert_cache[key]).total_seconds() > 1800:
+            del alert_cache[key]
 
 def get_ohlcv_cached(ticker, interval, count):
     key = f"{ticker}_{interval}_{count}"
@@ -68,9 +76,16 @@ def send_summary_if_due():
             else:
                 lines.append("조건을 만족한 종목 없음")
         send_message("\n".join(lines))
+
+        # D-2, D-1 캐시 초기화
+        for i in [2, 1]:
+            for key in list(alert_cache.keys()):
+                if f"_D{i}_" in key:
+                    del alert_cache[key]
+            summary_log[i].clear()
+
+        # D-0 요약만 초기화 (캐시는 30분 후 자동 삭제)
         summary_log[0].clear()
-        summary_log[1].clear()
-        summary_log[2].clear()
         last_summary_time = now
 
 def check_conditions(ticker, price):
@@ -98,7 +113,7 @@ def check_conditions(ticker, price):
     last_week_close = weekly_df['close'].iloc[-2]
     is_weekly_bullish = last_week_close > last_week_open or price > last_week_close
 
-    for i in range(3):  # D-2, D-1, D-0
+    for i in [2, 1, 0]:
         prev = -(i + 2)
         curr = -(i + 1)
 
@@ -115,40 +130,48 @@ def check_conditions(ticker, price):
         except:
             continue
 
-        link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
-
-        if all(pd.notna(x) for x in [
+        if not all(pd.notna(x) for x in [
             prev_close, curr_close,
             prev_bbd, curr_bbd,
             prev_bbu, curr_bbu,
             curr_ma7, prev_ma120, curr_ma120
         ]):
-            key_bbd = f"{ticker}_D{i}_bbd_ma7"
-            if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
-                if should_alert(key_bbd):
-                    send_message(f"📉 BBD + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
-                record_summary(i, ticker, "BBD + MA7 돌파", change_str)
+            continue
 
-            key_ma120 = f"{ticker}_D{i}_ma120_ma7"
-            if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
-                if should_alert(key_ma120):
-                    send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
-                record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
+        link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
+        key_prefix = f"{ticker}_D{i}_"
 
-            key_bbu = f"{ticker}_D{i}_bollinger_upper"
-            if prev_close < prev_bbu and curr_close > curr_bbu:
-                if should_alert(key_bbu):
-                    send_message(f"📈 BBU 상단 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
-                record_summary(i, ticker, "BBU 상단 돌파", change_str)
+        # BBD + MA7 돌파
+        key_bbd = key_prefix + "bbd_ma7"
+        if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
+            if should_alert(key_bbd):
+                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
+            record_summary(i, ticker, "BBD + MA7 돌파", change_str)
 
-# 🔁 주기적 감시 루프
+        # MA120 + MA7 돌파
+        key_ma120 = key_prefix + "ma120_ma7"
+        if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
+            if should_alert(key_ma120):
+                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
+            record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
+
+        # BBU 상단 돌파
+        key_bbu = key_prefix + "bollinger_upper"
+        if prev_close < prev_bbu and curr_close > curr_bbu:
+            if should_alert(key_bbu):
+                send_message(f"📈 BBU 상단 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
+            record_summary(i, ticker, "BBU 상단 돌파", change_str)
+
+# 🔁 감시 루프
 while True:
     try:
         prices = pyupbit.get_current_price(tickers)
         for ticker, price in prices.items():
             if price:
                 check_conditions(ticker, price)
+
         send_summary_if_due()
+        clear_d0_cache()
         time.sleep(30)
     except Exception as e:
         print(f"❌ 감시 오류: {e}")
