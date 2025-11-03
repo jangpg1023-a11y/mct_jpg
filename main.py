@@ -145,21 +145,21 @@ def check_conditions(ticker, price):
         # BBD + MA7 돌파
         key_bbd = key_prefix + "bbd_ma7"
         if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
-            if should_alert(key_bbd):
+            if i == 0 and should_alert(key_bbd):
                 send_message(f"📉 BBD + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "BBD + MA7 돌파", change_str)
 
         # MA120 + MA7 돌파
         key_ma120 = key_prefix + "ma120_ma7"
         if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
-            if should_alert(key_ma120):
+            if i == 0 and should_alert(key_ma120):
                 send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
 
         # BBU 상단 돌파
         key_bbu = key_prefix + "bollinger_upper"
         if prev_close < prev_bbu and curr_close > curr_bbu:
-            if should_alert(key_bbu):
+            if i == 0 and should_alert(key_bbu):
                 send_message(f"📈 BBU 상단 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "BBU 상단 돌파", change_str)
 
