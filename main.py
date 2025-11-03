@@ -77,14 +77,12 @@ def send_summary_if_due():
                 lines.append("조건을 만족한 종목 없음")
         send_message("\n".join(lines))
 
-        # D-2, D-1 캐시 초기화
         for i in [2, 1]:
             for key in list(alert_cache.keys()):
                 if f"_D{i}_" in key:
                     del alert_cache[key]
             summary_log[i].clear()
 
-        # D-0 요약만 초기화 (캐시는 30분 후 자동 삭제)
         summary_log[0].clear()
         last_summary_time = now
 
@@ -144,22 +142,25 @@ def check_conditions(ticker, price):
 
         # BBD + MA7 돌파
         key_bbd = key_prefix + "bbd_ma7"
+        bbd_alert = should_alert(key_bbd)
         if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
-            if i == 0 and should_alert(key_bbd):
+            if i == 0 and bbd_alert:
                 send_message(f"📉 BBD + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "BBD + MA7 돌파", change_str)
 
         # MA120 + MA7 돌파
         key_ma120 = key_prefix + "ma120_ma7"
+        ma120_alert = should_alert(key_ma120)
         if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
-            if i == 0 and should_alert(key_ma120):
+            if i == 0 and ma120_alert:
                 send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
 
         # BBU 상단 돌파
         key_bbu = key_prefix + "bollinger_upper"
+        bbu_alert = should_alert(key_bbu)
         if prev_close < prev_bbu and curr_close > curr_bbu:
-            if i == 0 and should_alert(key_bbu):
+            if i == 0 and bbu_alert:
                 send_message(f"📈 BBU 상단 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "BBU 상단 돌파", change_str)
 
