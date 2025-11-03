@@ -8,16 +8,20 @@ from keep_alive import keep_alive
 
 keep_alive()
 
-# 텔레그램 설정
-bot_token = os.getenv('BOT_TOKEN')
-chat_id = os.getenv('CHAT_ID')
+# 텔레그램 설정 (환경변수 직접 접근)
+try:
+    bot_token = os.environ['BOT_TOKEN']
+    chat_id = os.environ['CHAT_ID']
+except KeyError as e:
+    raise RuntimeError(f"❌ 환경변수 누락: {e}")
+
 telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 
 def send_message(text):
-    if bot_token and chat_id:
+    try:
         requests.post(telegram_url, data={'chat_id': chat_id, 'text': text})
-    else:
-        print("❌ 텔레그램 환경변수가 누락되었습니다.")
+    except Exception as e:
+        print(f"❌ 텔레그램 전송 오류: {e}")
 
 send_message("📡 pyupbit 기반 감시 시작")
 
@@ -102,17 +106,17 @@ def check_conditions(ticker, price):
             key_bbd = f"{ticker}_D{i}_bbd_ma7"
             if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
                 if should_alert(key_bbd):
-                    send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n현재가: {price:,} {change_str}\n{link}")
+                    send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
 
             key_ma120 = f"{ticker}_D{i}_ma120_ma7"
             if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                 if should_alert(key_ma120):
-                    send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n현재가: {price:,} {change_str}\n{link}")
+                    send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
 
             key_bbu = f"{ticker}_D{i}_bollinger_upper"
             if prev_close < prev_bbu and curr_close > curr_bbu:
                 if should_alert(key_bbu):
-                    send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n현재가: {price:,} {change_str}\n{link}")
+                    send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
 
 # 🔁 주기적 감시 루프
 while True:
