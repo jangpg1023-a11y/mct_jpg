@@ -8,13 +8,9 @@ from keep_alive import keep_alive
 
 keep_alive()
 
-# 텔레그램 설정 (환경변수 직접 접근)
-try:
-    bot_token = os.environ['BOT_TOKEN']
-    chat_id = os.environ['CHAT_ID']
-except KeyError as e:
-    raise RuntimeError(f"❌ 환경변수 누락: {e}")
-
+# 텔레그램 설정
+bot_token = os.environ['BOT_TOKEN']
+chat_id = os.environ['CHAT_ID']
 telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 
 def send_message(text):
@@ -34,6 +30,10 @@ alert_cache = {}
 # OHLCV 캐시
 ohlcv_cache = {}
 
+# 요약 캐시
+summary_log = {0: [], 1: [], 2: []}
+last_summary_time = time.time()
+
 def should_alert(key):
     now = dt.datetime.now()
     last = alert_cache.get(key)
@@ -52,6 +52,26 @@ def get_ohlcv_cached(ticker, interval, count):
     if df is not None:
         ohlcv_cache[key] = {'data': df, 'time': now}
     return df
+
+def record_summary(day_index, ticker, condition, change_str):
+    summary_log[day_index].append(f"{ticker}: {condition} ({change_str})")
+
+def send_summary_if_due():
+    global last_summary_time
+    now = time.time()
+    if now - last_summary_time >= 14400:  # 4시간
+        lines = ["📊 4시간 요약"]
+        for i in [2, 1, 0]:
+            lines.append(f"\n[D-{i}]")
+            if summary_log[i]:
+                lines.extend(summary_log[i])
+            else:
+                lines.append("조건을 만족한 종목 없음")
+        send_message("\n".join(lines))
+        summary_log[0].clear()
+        summary_log[1].clear()
+        summary_log[2].clear()
+        last_summary_time = now
 
 def check_conditions(ticker, price):
     df = get_ohlcv_cached(ticker, interval="day", count=130)
@@ -78,7 +98,7 @@ def check_conditions(ticker, price):
     last_week_close = weekly_df['close'].iloc[-2]
     is_weekly_bullish = last_week_close > last_week_open or price > last_week_close
 
-    for i in [0]:
+    for i in range(3):  # D-2, D-1, D-0
         prev = -(i + 2)
         curr = -(i + 1)
 
@@ -107,16 +127,19 @@ def check_conditions(ticker, price):
             if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
                 if should_alert(key_bbd):
                     send_message(f"📉 BBD + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
+                record_summary(i, ticker, "BBD + MA7 돌파", change_str)
 
             key_ma120 = f"{ticker}_D{i}_ma120_ma7"
             if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                 if should_alert(key_ma120):
                     send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
+                record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
 
             key_bbu = f"{ticker}_D{i}_bollinger_upper"
             if prev_close < prev_bbu and curr_close > curr_bbu:
                 if should_alert(key_bbu):
                     send_message(f"📈 BBU 상단 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
+                record_summary(i, ticker, "BBU 상단 돌파", change_str)
 
 # 🔁 주기적 감시 루프
 while True:
@@ -125,8 +148,8 @@ while True:
         for ticker, price in prices.items():
             if price:
                 check_conditions(ticker, price)
-        time.sleep(60)  # 1분마다 반복
+        send_summary_if_due()
+        time.sleep(30)
     except Exception as e:
         print(f"❌ 감시 오류: {e}")
-        time.sleep(60)
-
+        time.sleep(30)
