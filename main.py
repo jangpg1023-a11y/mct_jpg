@@ -106,17 +106,17 @@ def check_conditions(ticker, price):
             key_bbd = f"{ticker}_D{i}_bbd_ma7"
             if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
                 if should_alert(key_bbd):
-                    send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
+                    send_message(f"📉 BBD + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
 
             key_ma120 = f"{ticker}_D{i}_ma120_ma7"
             if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
                 if should_alert(key_ma120):
-                    send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
+                    send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
 
             key_bbu = f"{ticker}_D{i}_bollinger_upper"
             if prev_close < prev_bbu and curr_close > curr_bbu:
                 if should_alert(key_bbu):
-                    send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
+                    send_message(f"📈 BBU 상단 돌파 (D-{i})\n현재가: {price:,} {change_str}\n{link}")
 
 # 🔁 주기적 감시 루프
 while True:
@@ -129,3 +129,4 @@ while True:
     except Exception as e:
         print(f"❌ 감시 오류: {e}")
         time.sleep(60)
+
