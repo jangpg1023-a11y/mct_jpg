@@ -17,7 +17,10 @@ telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 
 def send_message(text):
     if bot_token and chat_id:
-        requests.post(telegram_url, data={'chat_id': chat_id, 'text': text})
+        try:
+            requests.post(telegram_url, data={'chat_id': chat_id, 'text': text})
+        except Exception as e:
+            print(f"❌ 텔레그램 전송 오류: {e}")
     else:
         print("❌ 텔레그램 환경변수가 누락되었습니다.")
 
@@ -25,7 +28,6 @@ send_message("📡 WebSocket 기반 감시 시작")
 
 # 종목 리스트
 tickers = pyupbit.get_tickers(fiat="KRW")
-ticker_codes = [f"KRW-{t.split('-')[1]}" if '-' in t else t for t in tickers]
 
 # 알림 캐시
 alert_cache = {}
@@ -47,10 +49,14 @@ def get_ohlcv_cached(ticker, interval, count):
     cached = ohlcv_cache.get(key)
     if cached and (now - cached['time']).total_seconds() < 300:
         return cached['data']
-    df = pyupbit.get_ohlcv(ticker, interval=interval, count=count)
-    if df is not None:
-        ohlcv_cache[key] = {'data': df, 'time': now}
-    return df
+    try:
+        df = pyupbit.get_ohlcv(ticker, interval=interval, count=count)
+        if df is not None:
+            ohlcv_cache[key] = {'data': df, 'time': now}
+        return df
+    except Exception as e:
+        print(f"❌ OHLCV 요청 오류: {ticker}, {interval}, {e}")
+        return None
 
 def check_conditions(ticker, price):
     try:
@@ -58,6 +64,7 @@ def check_conditions(ticker, price):
         weekly_df = get_ohlcv_cached(ticker, interval="week", count=3)
 
         if df is None or weekly_df is None or len(df) < 130 or len(weekly_df) < 2:
+            print(f"⚠️ 데이터 부족: {ticker}")
             return
 
         close = df['close']
@@ -92,7 +99,8 @@ def check_conditions(ticker, price):
                 curr_ma7 = ma7.iloc[curr]
                 prev_ma120 = ma120.iloc[prev]
                 curr_ma120 = ma120.iloc[curr]
-            except:
+            except Exception as e:
+                print(f"❌ 인덱싱 오류: {ticker}, {e}")
                 continue
 
             link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
@@ -118,28 +126,36 @@ def check_conditions(ticker, price):
                     if should_alert(key_bbu):
                         send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n현재가: {price:,} KRW\n오늘 증감율: {change_str}\n{link}")
     except Exception as e:
-        print(f"❌ 오류 발생: {e}")
+        print(f"❌ 조건 검사 오류: {ticker}, {e}")
 
 def on_message(ws, message):
-    data = json.loads(message)[0]
-    code = data['code'].replace('KRW-', 'KRW-')
-    price = data['trade_price']
-    check_conditions(code, price)
+    try:
+        data = json.loads(message)[0]
+        code = data['code']
+        price = data['trade_price']
+        print(f"✅ 수신: {code} @ {price}")
+        check_conditions(code, price)
+    except Exception as e:
+        print(f"❌ 메시지 처리 오류: {e}")
 
 def on_open(ws):
-    payload = [{
-        "ticket": "test",
-    }, {
-        "type": "trade",
-        "codes": [f"KRW-{t.split('-')[1]}" for t in tickers],
-    }]
-    ws.send(json.dumps(payload))
+    try:
+        print("🔗 WebSocket 연결됨. 구독 시작")
+        payload = [
+            {"ticket": "test"},
+            {"type": "trade", "codes": tickers}
+        ]
+        ws.send(json.dumps(payload))
+    except Exception as e:
+        print(f"❌ 구독 오류: {e}")
 
 def on_error(ws, error):
+    print(f"❌ WebSocket 오류 발생: {error}")
     send_message(f"⚠️ WebSocket 오류 발생: {error}")
 
-def on_close(ws, close_status_code, close_msg):
-    send_message(f"🔌 WebSocket 종료됨 (코드: {close_status_code}, 메시지: {close_msg})\n5초 후 재연결 시도...")
+def on_close(ws, code, msg):
+    print(f"🔌 WebSocket 종료됨: 코드={code}, 메시지={msg}")
+    send_message(f"🔌 WebSocket 종료됨 (코드: {code}, 메시지: {msg})\n5초 후 재연결 시도...")
     time.sleep(5)
     reconnect()
 
