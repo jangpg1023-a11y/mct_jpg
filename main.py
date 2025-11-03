@@ -1,6 +1,7 @@
+import websocket
+import json
 import pyupbit
 import pandas as pd
-import time
 import datetime as dt
 import requests
 import os
@@ -16,128 +17,100 @@ telegram_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
 def send_message(text):
     requests.post(telegram_url, data={'chat_id': chat_id, 'text': text})
 
-send_message("📡 Upbit 전체 종목 감시 시작\n(일봉 기준 최근 3일 돌파 조건 + 주봉 양봉 필터)")
+send_message("📡 WebSocket 기반 감시 시작")
 
-upbit_tickers = pyupbit.get_tickers(fiat="KRW")
+# 종목 리스트
+tickers = pyupbit.get_tickers(fiat="KRW")
+ticker_codes = [f"KRW-{t.split('-')[1]}" if '-' in t else t for t in tickers]
 
+# 알림 캐시
 alert_cache = {}
-last_cache_reset = None
 
-bbd_dict = {2: [], 1: [], 0: []}
-ma120_dict = {2: [], 1: [], 0: []}
-bbu_dict = {2: [], 1: [], 0: []}
+def should_alert(key):
+    now = dt.datetime.now()
+    last = alert_cache.get(key)
+    if not last or (now - last).total_seconds() > 1800:
+        alert_cache[key] = now
+        return True
+    return False
 
-while True:
-    try:
-        now = dt.datetime.now(dt.timezone.utc)
-        kst_now = now.astimezone(dt.timezone(dt.timedelta(hours=9)))
+def check_conditions(ticker, price):
+    df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
+    weekly_df = pyupbit.get_ohlcv(ticker, interval="week", count=3)
 
-        # 검사 대상 인덱스 결정 및 4시간마다 캐시 초기화
-        if last_cache_reset is None:
-            check_d_indices = [2, 1, 0]
-            last_cache_reset = now
-        elif (now - last_cache_reset).total_seconds() > 14400:
-            check_d_indices = [2, 1, 0]
-            alert_cache.clear()
+    if df is None or weekly_df is None or len(df) < 130 or len(weekly_df) < 2:
+        return
 
-            def format_dict(title, data_dict):
-                lines = []
-                for d in [2, 1, 0]:
-                    if data_dict[d]:
-                        tickers = ", ".join(data_dict[d])
-                        lines.append(f"- D-{d}: {tickers}")
-                return f"\n{title}:\n" + "\n".join(lines) if lines else f"\n{title}: 없음"
+    close = df['close']
+    ma7 = close.rolling(7).mean()
+    ma120 = close.rolling(120).mean()
+    std = close.rolling(120).std()
+    bbd = ma120 - 2 * std
+    bbu = ma120 + 2 * std
 
-            summary = "📊 [4시간 요약 알림]\n"
-            summary += format_dict("📉 BBD + MA7 돌파", bbd_dict)
-            summary += format_dict("➖ MA120 + MA7 돌파", ma120_dict)
-            summary += format_dict("📈 BBU 상단 돌파", bbu_dict)
-            send_message(summary)
+    last_week_open = weekly_df['open'].iloc[-2]
+    last_week_close = weekly_df['close'].iloc[-2]
+    is_weekly_bullish = last_week_close > last_week_open or price > last_week_close
 
-            bbd_dict = {2: [], 1: [], 0: []}
-            ma120_dict = {2: [], 1: [], 0: []}
-            bbu_dict = {2: [], 1: [], 0: []}
-            last_cache_reset = now
-        else:
-            check_d_indices = [0]
+    for i in [0]:  # 실시간이므로 D-0만 검사
+        prev = -(i + 2)
+        curr = -(i + 1)
 
-        for ticker in upbit_tickers:
-            price = pyupbit.get_current_price(ticker)
-            if price is None or price < 1:
-                continue
+        try:
+            prev_close = close.iloc[prev]
+            curr_close = close.iloc[curr]
+            prev_bbd = bbd.iloc[prev]
+            curr_bbd = bbd.iloc[curr]
+            prev_bbu = bbu.iloc[prev]
+            curr_bbu = bbu.iloc[curr]
+            curr_ma7 = ma7.iloc[curr]
+            prev_ma120 = ma120.iloc[prev]
+            curr_ma120 = ma120.iloc[curr]
+        except:
+            continue
 
-            link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
+        link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
 
-            def should_alert(key):
-                last = alert_cache.get(key)
-                if not last or (now - last).total_seconds() > 1800:
-                    alert_cache[key] = now
-                    return True
-                return False
+        if all(pd.notna(x) for x in [
+            prev_close, curr_close,
+            prev_bbd, curr_bbd,
+            prev_bbu, curr_bbu,
+            curr_ma7, prev_ma120, curr_ma120
+        ]):
+            key_bbd = f"{ticker}_D{i}_bbd_ma7"
+            if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
+                if should_alert(key_bbd):
+                    send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n{link}")
 
-            daily_df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
-            weekly_df = pyupbit.get_ohlcv(ticker, interval="week", count=3)
+            key_ma120 = f"{ticker}_D{i}_ma120_ma7"
+            if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
+                if should_alert(key_ma120):
+                    send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n{link}")
 
-            if (
-                daily_df is not None and not daily_df.empty and len(daily_df) >= 130 and
-                weekly_df is not None and len(weekly_df) >= 2
-            ):
-                close = daily_df['close']
-                ma7 = close.rolling(7).mean()
-                ma120 = close.rolling(120).mean()
-                std = close.rolling(120).std()
-                bbd = ma120 - 2 * std
-                bbu = ma120 + 2 * std
+            key_bbu = f"{ticker}_D{i}_bollinger_upper"
+            if prev_close < prev_bbu and curr_close > curr_bbu:
+                if should_alert(key_bbu):
+                    send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n{link}")
 
-                last_week_open = weekly_df['open'].iloc[-2]
-                last_week_close = weekly_df['close'].iloc[-2]
-                is_weekly_bullish = (
-                    last_week_close > last_week_open or
-                    price > last_week_close
-                )
+def on_message(ws, message):
+    data = json.loads(message)[0]
+    code = data['code'].replace('KRW-', 'KRW-')
+    price = data['trade_price']
+    check_conditions(code, price)
 
-                for i in check_d_indices:
-                    prev = -(i + 2)
-                    curr = -(i + 1)
+def on_open(ws):
+    payload = [{
+        "ticket": "test",
+    }, {
+        "type": "trade",
+        "codes": [f"KRW-{t.split('-')[1]}" for t in tickers],
+    }]
+    ws.send(json.dumps(payload))
 
-                    prev_close = close.iloc[prev]
-                    curr_close = close.iloc[curr]
-                    prev_bbd = bbd.iloc[prev]
-                    curr_bbd = bbd.iloc[curr]
-                    prev_bbu = bbu.iloc[prev]
-                    curr_bbu = bbu.iloc[curr]
-                    curr_ma7 = ma7.iloc[curr]
-                    prev_ma120 = ma120.iloc[prev]
-                    curr_ma120 = ma120.iloc[curr]
+ws = websocket.WebSocketApp(
+    "wss://api.upbit.com/websocket/v1",
+    on_message=on_message,
+    on_open=on_open
+)
 
-                    if all(pd.notna(x) for x in [
-                        prev_close, curr_close,
-                        prev_bbd, curr_bbd,
-                        prev_bbu, curr_bbu,
-                        curr_ma7, prev_ma120, curr_ma120
-                    ]):
-                        key_bbd = f"{ticker}_D{i}_bbd_ma7"
-                        if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
-                            if should_alert(key_bbd):
-                                bbd_dict[i].append(ticker)
-                                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker}\n{link}")
-
-                        key_ma120 = f"{ticker}_D{i}_ma120_ma7"
-                        if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
-                            if should_alert(key_ma120):
-                                ma120_dict[i].append(ticker)
-                                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker}\n{link}")
-
-                        key_bbu = f"{ticker}_D{i}_bollinger_upper"
-                        if prev_close < prev_bbu and curr_close > curr_bbu:
-                            if should_alert(key_bbu):
-                                bbu_dict[i].append(ticker)
-                                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker}\n{link}")
-
-            time.sleep(10)
-
-        time.sleep(10)
-
-    except Exception as e:
-        print(f"Error: {e}")
-        time.sleep(10)
+ws.run_forever()
