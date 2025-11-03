@@ -22,7 +22,6 @@ upbit_tickers = pyupbit.get_tickers(fiat="KRW")
 
 alert_cache = {}
 last_cache_reset = None
-force_full_scan = True  # 재시작 시 강제 검사
 
 bbd_dict = {2: [], 1: [], 0: []}
 ma120_dict = {2: [], 1: [], 0: []}
@@ -33,8 +32,12 @@ while True:
         now = dt.datetime.now(dt.timezone.utc)
         kst_now = now.astimezone(dt.timezone(dt.timedelta(hours=9)))
 
-        # 캐시 초기화 및 요약 알림
-        if last_cache_reset and (now - last_cache_reset).total_seconds() > 14400:
+        # 검사 대상 인덱스 결정 및 4시간마다 캐시 초기화
+        if last_cache_reset is None:
+            check_d_indices = [2, 1, 0]
+            last_cache_reset = now
+        elif (now - last_cache_reset).total_seconds() > 14400:
+            check_d_indices = [2, 1, 0]
             alert_cache.clear()
 
             def format_dict(title, data_dict):
@@ -49,19 +52,12 @@ while True:
             summary += format_dict("📉 BBD + MA7 돌파", bbd_dict)
             summary += format_dict("➖ MA120 + MA7 돌파", ma120_dict)
             summary += format_dict("📈 BBU 상단 돌파", bbu_dict)
-
             send_message(summary)
 
             bbd_dict = {2: [], 1: [], 0: []}
             ma120_dict = {2: [], 1: [], 0: []}
             bbu_dict = {2: [], 1: [], 0: []}
             last_cache_reset = now
-            force_full_scan = True  # 다음 루프에서 강제 검사
-
-        # 검사 대상 인덱스 결정
-        if force_full_scan or (last_cache_reset and (now - last_cache_reset).total_seconds() < 60):
-            check_d_indices = [2, 1, 0]
-            force_full_scan = False
         else:
             check_d_indices = [0]
 
@@ -93,7 +89,6 @@ while True:
                 bbd = ma120 - 2 * std
                 bbu = ma120 + 2 * std
 
-                # 주봉 양봉 여부 확인 (지난 주 또는 이번 주 현재가 기준)
                 last_week_open = weekly_df['open'].iloc[-2]
                 last_week_close = weekly_df['close'].iloc[-2]
                 is_weekly_bullish = (
@@ -143,5 +138,6 @@ while True:
 
         time.sleep(10)
 
-    except Exception:
+    except Exception as e:
+        print(f"Error: {e}")
         time.sleep(10)
