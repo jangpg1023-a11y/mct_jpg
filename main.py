@@ -47,7 +47,6 @@ async def send_summary_if_due():
             for i in [2, 1, 0]:
                 summary_log[i].clear()
             last_summary_time = now
-            # D-1, D-2 캐시 초기화
             for key in list(alert_cache.keys()):
                 if "_D1_" in key or "_D2_" in key:
                     del alert_cache[key]
@@ -142,6 +141,7 @@ async def run_ws():
                 await asyncio.sleep(5)
 
 async def main():
+    send_message("📡 웹소켓 기반 감시 시스템 시작")
     asyncio.create_task(run_ws())
     asyncio.create_task(send_summary_if_due())
     asyncio.create_task(clear_d0_cache_loop())
