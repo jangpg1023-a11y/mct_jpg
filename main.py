@@ -169,29 +169,7 @@ async def refresh_summary_conditions():
         except Exception as e:
             print("요약 재분석 오류:", e)
 
-async def send_summary_if_due():
-    global last_summary_time, first_summary_sent
-    while True:
-        await asyncio.sleep(60)
-        now = time.time()
-        if not first_summary_sent or now - last_summary_time >= 10800:
-            await refresh_summary_conditions()
-            lines = ["📊 요약 메시지"]
-            for i in [2, 1, 0]:
-                lines.append(f"\n[D-{i}]")
-                if summary_log[i]:
-                    lines.extend(summary_log[i])
-                else:
-                    lines.append("조건을 만족한 종목 없음")
-            send_message("\n".join(lines))
-            for i in [2, 1, 0]:
-                summary_log[i].clear()
-            last_summary_time = now
-            first_summary_sent = True
-            for key in list(alert_cache.keys()):
-                if "_D1_" in key or "_D2_" in key:
-                    del alert_cache[key]
-
+# 날짜 변경 감지 루프
 async def reset_daily_cache_loop():
     global current_day, alert_cache, summary_log, ohlcv_cache, last_summary_time, first_summary_sent
     while True:
@@ -206,14 +184,38 @@ async def reset_daily_cache_loop():
             first_summary_sent = False
             send_message("🔄 날짜 변경 감지: 캐시 초기화 완료")
 
+# 요약 메시지 루프 (3시간마다 전송)
+async def send_summary_if_due():
+    global last_summary_time, first_summary_sent
+    while True:
+        now = time.time()
+        if first_summary_sent is False or now - last_summary_time > 60 * 60 * 3:
+            last_summary_time = now
+            first_summary_sent = True
+
+            message = f"🗒️ 요약 리포트 ({datetime.now().strftime('%m/%d %H:%M')})\n"
+            for i in [2, 1, 0]:
+                entries = summary_log[i]
+                message += f"\n📆 D-{i} ({len(entries)}종목)\n"
+                if entries:
+                    for entry in entries:
+                        message += f"• {entry}\n"
+                else:
+                    message += "• 해당 없음\n"
+
+            send_message(message)
+        await asyncio.sleep(60)
+
+# 메인 함수
 async def main():
     send_message("📡 웹소켓 기반 감시 시스템 시작")
-    asyncio.create_task(run_ws())                    # 실시간 가격 감시 (D-0)
-    asyncio.create_task(process_queue())             # 실시간 조건 검사
-    asyncio.create_task(send_summary_if_due())       # 3시간마다 요약 메시지
-    asyncio.create_task(reset_daily_cache_loop())    # 날짜 변경 시 캐시 초기화
+    asyncio.create_task(run_ws())                    # 실시간 가격 감시
+    asyncio.create_task(process_queue())             # 조건 검사
+    asyncio.create_task(send_summary_if_due())       # 요약 메시지 루프
+    asyncio.create_task(reset_daily_cache_loop())    # 날짜 변경 감지 루프
     while True:
         await asyncio.sleep(60)
 
+# 실행 진입점
 if __name__ == "__main__":
     asyncio.run(main())
