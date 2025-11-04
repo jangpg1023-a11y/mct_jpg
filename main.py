@@ -1,6 +1,5 @@
-import asyncio, websockets, json, pyupbit, requests, os
+import asyncio, websockets, json, pyupbit, requests, os, time
 from datetime import datetime
-from statistics import mean, stdev
 from keep_alive import keep_alive
 
 keep_alive()
@@ -11,7 +10,10 @@ TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
 alert_cache = {}
 summary_log = {0: [], 1: [], 2: []}
-last_summary_time = datetime.now().timestamp()
+ohlcv_cache = {}
+last_summary_time = 0
+first_summary_sent = False
+price_queue = asyncio.Queue()
 
 def send_message(text):
     try:
@@ -20,7 +22,7 @@ def send_message(text):
         pass
 
 def should_alert(key, limit=1800):
-    now = datetime.now().timestamp()
+    now = time.time()
     last = alert_cache.get(key, 0)
     if now - last > limit:
         alert_cache[key] = now
@@ -30,38 +32,16 @@ def should_alert(key, limit=1800):
 def record_summary(day_index, ticker, condition, change_str):
     summary_log[day_index].append(f"{ticker}: {condition} ({change_str})")
 
-async def send_summary_if_due():
-    global last_summary_time
-    while True:
-        await asyncio.sleep(60)
-        now = datetime.now().timestamp()
-        if now - last_summary_time >= 1800:
-            lines = ["📊 요약 메시지 (30분 주기)"]
-            for i in [2, 1, 0]:
-                lines.append(f"\n[D-{i}]")
-                if summary_log[i]:
-                    lines.extend(summary_log[i])
-                else:
-                    lines.append("조건을 만족한 종목 없음")
-            send_message("\n".join(lines))
-            for i in [2, 1, 0]:
-                summary_log[i].clear()
-            last_summary_time = now
-            for key in list(alert_cache.keys()):
-                if "_D1_" in key or "_D2_" in key:
-                    del alert_cache[key]
-
-async def clear_d0_cache_loop():
-    while True:
-        await asyncio.sleep(60)
-        now = datetime.now().timestamp()
-        for key in list(alert_cache.keys()):
-            if "_D0_" in key and now - alert_cache[key] > 1800:
-                del alert_cache[key]
+def get_ohlcv_cached(ticker):
+    now = time.time()
+    if ticker not in ohlcv_cache or now - ohlcv_cache[ticker]['ts'] > 600:
+        df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
+        weekly = pyupbit.get_ohlcv(ticker, interval="week", count=3)
+        ohlcv_cache[ticker] = {'day': df, 'week': weekly, 'ts': now}
+    return ohlcv_cache[ticker]['day'], ohlcv_cache[ticker]['week']
 
 def check_conditions(ticker, price):
-    df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
-    weekly = pyupbit.get_ohlcv(ticker, interval="week", count=3)
+    df, weekly = get_ohlcv_cached(ticker)
     if df is None or weekly is None or len(df) < 125 or len(weekly) < 2:
         return
 
@@ -69,7 +49,6 @@ def check_conditions(ticker, price):
     open_price = df['open'].iloc[-1]
     change_str = "N/A" if open_price == 0 else f"{((price - open_price) / open_price) * 100:+.2f}%"
 
-    # 지표 계산
     ma7 = df['close'].rolling(window=7).mean().dropna().tolist()
     ma120 = df['close'].rolling(window=120).mean().dropna().tolist()
     std120 = df['close'].rolling(window=120).std().dropna().tolist()
@@ -105,7 +84,6 @@ def check_conditions(ticker, price):
         key_prefix = f"{ticker}_D{i}_{date_str}_"
         link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
 
-        # 📉 BBD + MA7 돌파
         key_bbd = key_prefix + "bbd_ma7"
         if (
             is_weekly_bullish and
@@ -118,7 +96,6 @@ def check_conditions(ticker, price):
                 send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "BBD + MA7 돌파", change_str)
 
-        # ➖ MA120 + MA7 돌파
         key_ma120 = key_prefix + "ma120_ma7"
         if (
             prev_close < prev_ma120 and
@@ -130,37 +107,85 @@ def check_conditions(ticker, price):
                 send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
 
-        # 📈 BBU 상단 돌파
         key_bbu = key_prefix + "bollinger_upper"
         if prev_close < prev_bbu and curr_close > curr_bbu:
             if i == 0 and should_alert(key_bbu):
                 send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "BBU 상단 돌파", change_str)
 
+async def process_queue():
+    while True:
+        ticker, price = await price_queue.get()
+        try:
+            check_conditions(ticker, price)
+        except Exception as e:
+            print("분석 오류:", e)
+        price_queue.task_done()
+
 async def run_ws():
     uri = "wss://api.upbit.com/websocket/v1"
     tickers = pyupbit.get_tickers(fiat="KRW")
-    subscribe = [
-        {"ticket": "ticker"},
-        {"type": "ticker", "codes": tickers},
-        {"format": "DEFAULT"}
-    ]
+    subscribe = [{"ticket": "ticker"}, {"type": "ticker", "codes": tickers}, {"format": "DEFAULT"}]
 
-    async with websockets.connect(uri) as ws:
-        await ws.send(json.dumps(subscribe))
-        while True:
-            try:
-                data = await ws.recv()
-                parsed = json.loads(data)
-                ticker = parsed['code']
-                price = parsed['trade_price']
-                check_conditions(ticker, price)
-            except:
-                await asyncio.sleep(5)
+    while True:
+        try:
+            async with websockets.connect(uri) as ws:
+                await ws.send(json.dumps(subscribe))
+                while True:
+                    data = await ws.recv()
+                    parsed = json.loads(data)
+                    await price_queue.put((parsed['code'], parsed['trade_price']))
+        except Exception as e:
+            print("웹소켓 오류:", e)
+            await asyncio.sleep(5)
+
+async def refresh_summary_conditions():
+    tickers = pyupbit.get_tickers(fiat="KRW")
+    for ticker in tickers:
+        df, weekly = get_ohlcv_cached(ticker)
+        if df is None or weekly is None:
+            continue
+        price = df['close'].iloc[-1]
+        try:
+            check_conditions(ticker, price)
+        except Exception as e:
+            print("요약 재분석 오류:", e)
+
+async def send_summary_if_due():
+    global last_summary_time, first_summary_sent
+    while True:
+        await asyncio.sleep(60)
+        now = time.time()
+        if not first_summary_sent or now - last_summary_time >= 10800:
+            await refresh_summary_conditions()
+            lines = ["📊 요약 메시지"]
+            for i in [2, 1, 0]:
+                lines.append(f"\n[D-{i}]")
+                if summary_log[i]:
+                    lines.extend(summary_log[i])
+                else:
+                    lines.append("조건을 만족한 종목 없음")
+            send_message("\n".join(lines))
+            for i in [2, 1, 0]:
+                summary_log[i].clear()
+            last_summary_time = now
+            first_summary_sent = True
+            for key in list(alert_cache.keys()):
+                if "_D1_" in key or "_D2_" in key:
+                    del alert_cache[key]
+
+async def clear_d0_cache_loop():
+    while True:
+        await asyncio.sleep(60)
+        now = time.time()
+        for key in list(alert_cache.keys()):
+            if "_D0_" in key and now - alert_cache[key] > 1800:
+                del alert_cache[key]
 
 async def main():
     send_message("📡 웹소켓 기반 감시 시스템 시작")
     asyncio.create_task(run_ws())
+    asyncio.create_task(process_queue())
     asyncio.create_task(send_summary_if_due())
     asyncio.create_task(clear_d0_cache_loop())
     while True:
