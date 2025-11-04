@@ -35,8 +35,8 @@ async def send_summary_if_due():
     while True:
         await asyncio.sleep(60)
         now = datetime.now().timestamp()
-        if now - last_summary_time >= 14400:
-            lines = ["📊 4시간 요약"]
+        if now - last_summary_time >= 1800:  # ✅ 테스트용 30분
+            lines = ["📊 요약 메시지 (30분 주기)"]
             for i in [2, 1, 0]:
                 lines.append(f"\n[D-{i}]")
                 if summary_log[i]:
@@ -90,6 +90,7 @@ def check_conditions(ticker, price):
             curr_bbd = bbd[idx]
             prev_bbu = bbu[idx - 1]
             curr_bbu = bbu[idx]
+            prev_ma7 = ma7[idx - 1]
             curr_ma7 = ma7[idx]
         except:
             continue
@@ -98,21 +99,32 @@ def check_conditions(ticker, price):
         key_prefix = f"{ticker}_D{i}_{date_str}_"
         link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
 
-        # BBD + MA7 돌파
+        # 📉 BBD + MA7 돌파
         key_bbd = key_prefix + "bbd_ma7"
-        if is_weekly_bullish and prev_close < prev_bbd and curr_close > curr_bbd and curr_close > curr_ma7:
+        if (
+            is_weekly_bullish and
+            prev_close < prev_bbd and
+            prev_close < prev_ma7 and
+            curr_close > curr_bbd and
+            curr_close > curr_ma7
+        ):
             if i == 0 and should_alert(key_bbd):
                 send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "BBD + MA7 돌파", change_str)
 
-        # MA120 + MA7 돌파
+        # ➖ MA120 + MA7 돌파
         key_ma120 = key_prefix + "ma120_ma7"
-        if prev_close < prev_ma120 and curr_close > curr_ma120 and curr_close > curr_ma7:
+        if (
+            prev_close < prev_ma120 and
+            prev_close < prev_ma7 and
+            curr_close > curr_ma120 and
+            curr_close > curr_ma7
+        ):
             if i == 0 and should_alert(key_ma120):
                 send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
             record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
 
-        # BBU 상단 돌파
+        # 📈 BBU 상단 돌파
         key_bbu = key_prefix + "bollinger_upper"
         if prev_close < prev_bbu and curr_close > curr_bbu:
             if i == 0 and should_alert(key_bbu):
