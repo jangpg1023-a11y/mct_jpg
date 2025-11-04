@@ -8,11 +8,28 @@ BOT_TOKEN = os.environ['BOT_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
-watchlist = ["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-DOGE"]
 price_queue = asyncio.Queue()
 alert_cache = {}
 ohlcv_cache = {}
 summary_log = {0: [], 1: [], 2: []}
+watchlist = []
+
+# ──────────────── 가격 포맷 ────────────────
+def format_price(price):
+    if price >= 100_000:
+        return f"{price:,.0f}"
+    elif price >= 10_000:
+        return f"{price:,.1f}"
+    elif price >= 1_000:
+        return f"{price:,.2f}"
+    elif price >= 10:
+        return f"{price:,.3f}"
+    else:
+        return f"{price:,.4f}"
+
+# ──────────────── 전체 KRW 종목 불러오기 ────────────────
+def get_all_krw_tickers():
+    return pyupbit.get_tickers(fiat="KRW")
 
 # ──────────────── 텔레그램 메시지 ────────────────
 def send_message(text):
@@ -79,6 +96,7 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
     open_price = df['open'].iloc[-1]
     change_str = f"{((price - open_price) / open_price) * 100:+.2f}%" if open_price else "N/A"
+    formatted_price = format_price(price)
     link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
     is_weekly_bullish = weekly['close'].iloc[-2] > weekly['open'].iloc[-2] or price > weekly['close'].iloc[-2]
 
@@ -96,17 +114,17 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
         if is_weekly_bullish and pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
             if i == 0 and should_alert(key + "bbd_ma7"):
-                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
+                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
             record_summary(i, ticker, "BBD + MA7 돌파", change_str)
 
         if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
             if i == 0 and should_alert(key + "ma120_ma7"):
-                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
+                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
             record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
 
         if pc < bbup and cc > bbuc:
             if i == 0 and should_alert(key + "bollinger_upper"):
-                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
+                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
             record_summary(i, ticker, "BBU 상단 돌파", change_str)
 
 # ──────────────── 실시간 가격 처리 ────────────────
@@ -130,8 +148,17 @@ async def analyze_past_conditions():
 def send_past_summary():
     msg = f"📊 조건 요약 ({datetime.now().strftime('%m/%d %H:%M')})\n"
     for i in [0, 1, 2]:
-        entries = summary_log[i]
-        msg += f"\n📆 D-{i} ({len(entries)}종목)\n"
+        entries = summary_log[i] ({len(entries)})\n"
+        msg += "\n".join([f"• {e}" for e in entries]) if entries else "• 해당 없음\n"
+    send_message(msg)
+
+# ──────────────── 요약 루프 (3시간마다) ────────────────
+async def daily_summary_loop():
+    while True:
+        await analyze_past_conditions()
+        send_past_summary()
+        await asyncio.sleep(6
+        msg += f"\n📆 D-{i} \n"
         msg += "\n".join([f"• {e}" for e in entries]) if entries else "• 해당 없음\n"
     send_message(msg)
 
@@ -144,7 +171,9 @@ async def daily_summary_loop():
 
 # ──────────────── 메인 루프 ────────────────
 async def main():
-    send_message("📡 감시 시스템 시작")
+    global watchlist
+    watchlist = get_all_krw_tickers()
+    send_message("📡 전체 종목 감시 시작")
     asyncio.create_task(run_ws())
     asyncio.create_task(process_queue())
     asyncio.create_task(daily_summary_loop())
