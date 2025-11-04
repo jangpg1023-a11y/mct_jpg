@@ -1,5 +1,4 @@
-pandas
+flask
 pyupbit
-websocket-client
+websockets
 requests
-Flask
