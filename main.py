@@ -31,7 +31,9 @@ def should_alert(key, limit=1800):
     return False
 
 def record_summary(day_index, ticker, condition, change_str):
-    summary_log[day_index].append(f"{ticker}: {condition} ({change_str})")
+    entry = f"{ticker}: {condition} ({change_str})"
+    if entry not in summary_log[day_index]:
+        summary_log[day_index].append(entry)
 
 def get_ohlcv_cached(ticker):
     now = time.time()
@@ -219,3 +221,4 @@ async def main():
 # 실행 진입점
 if __name__ == "__main__":
     asyncio.run(main())
+
