@@ -61,47 +61,66 @@ def record_summary(day_index, ticker, condition_text, change_str):
 
 # ──────────────── 조건 검사 (초간결 버전) ────────────────
 def check_conditions(ticker, price, day_indexes=[0]):
-    df, w = get_ohlcv_cached(ticker)
-    if df is None or w is None or len(df) < 125: return
+    df, weekly = get_ohlcv_cached(ticker)
+    if df is None or weekly is None or len(df) < 125 or len(weekly) < 2:
+        return
 
-    c = df['close'].tolist()
-    o = df['open'].iloc[-1]
-    chg = f"{((price - o) / o) * 100:+.2f}%" if o else "N/A"
-    ma7 = df['close'].rolling(7).mean().dropna().tolist()
-    ma120 = df['close'].rolling(120).mean().dropna().tolist()
-    std = df['close'].rolling(120).std().dropna().tolist()
-    bbd = [ma120[i] - 2 * std[i] for i in range(len(ma120))]
-    bbu = [ma120[i] + 2 * std[i] for i in range(len(ma120))]
-    off = len(c) - len(ma7)
-    bull = w['close'].iloc[-2] > w['open'].iloc[-2] or price > w['close'].iloc[-2]
+    # 기술 지표 계산
+    close = df['close']
+    ma7 = close.rolling(7).mean()
+    ma120 = close.rolling(120).mean()
+    std120 = close.rolling(120).std()
+    bbd = ma120 - 2 * std120
+    bbu = ma120 + 2 * std120
+
+    # 주봉 조건
+    last_week_open = weekly['open'].iloc[-2]
+    last_week_close = weekly['close'].iloc[-2]
+    is_weekly_bullish = last_week_close > last_week_open or price > last_week_close
+
+    # 당일 변동률
+    open_price = df['open'].iloc[-1]
+    change_str = f"{((price - open_price) / open_price) * 100:+.2f}%" if open_price else "N/A"
     link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
 
     for i in day_indexes:
         try:
-            pc, cc = c[-2 - i], c[-1 - i]
-            m7p, m7c = ma7[-2 - i - off], ma7[-1 - i - off]
-            m120p, m120c = ma120[-2 - i - off], ma120[-1 - i - off]
-            bbp, bbc = bbu[-2 - i], bbu[-1 - i]
-            bbdp, bbdc = bbd[-2 - i], bbd[-1 - i]
-        except: continue
+            idx = -1 - i
+            prev_idx = -2 - i
 
-        k = f"{ticker}_D{i}_{datetime.now().date()}_"
+            pc = close.iloc[prev_idx]
+            cc = close.iloc[idx]
 
-        if bull and pc < bbdp and pc < m7p and cc > bbdc and cc > m7c:
-            if i == 0 and should_alert(k + "bbd_ma7"):
-                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {chg}\n{link}")
-            record_summary(i, ticker, "BBD + MA7 돌파", chg)
+            ma7_prev = ma7.iloc[prev_idx]
+            ma7_curr = ma7.iloc[idx]
+            ma120_prev = ma120.iloc[prev_idx]
+            ma120_curr = ma120.iloc[idx]
+            bbd_prev = bbd.iloc[prev_idx]
+            bbd_curr = bbd.iloc[idx]
+            bbu_prev = bbu.iloc[prev_idx]
+            bbu_curr = bbu.iloc[idx]
+        except:
+            continue
 
-        if pc < m120p and pc < m7p and cc > m120c and cc > m7c:
-            if i == 0 and should_alert(k + "ma120_ma7"):
-                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {chg}\n{link}")
-            record_summary(i, ticker, "MA120 + MA7 돌파", chg)
+        key = f"{ticker}_D{i}_{datetime.now().date()}_"
 
-        if pc < bbp and cc > bbc:
-            if i == 0 and should_alert(k + "bollinger_upper"):
-                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {chg}\n{link}")
-            record_summary(i, ticker, "BBU 상단 돌파", chg)
+        # 📉 BBD + MA7 돌파
+        if is_weekly_bullish and pc < bbd_prev and pc < ma7_prev and cc > bbd_curr and cc > ma7_curr:
+            if i == 0 and should_alert(key + "bbd_ma7"):
+                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
+            record_summary(i, ticker, "BBD + MA7 돌파", change_str)
 
+        # ➖ MA120 + MA7 돌파
+        if pc < ma120_prev and pc < ma7_prev and cc > ma120_curr and cc > ma7_curr:
+            if i == 0 and should_alert(key + "ma120_ma7"):
+                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
+            record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
+
+        # 📈 BBU 상단 돌파
+        if pc < bbu_prev and cc > bbu_curr:
+            if i == 0 and should_alert(key + "bollinger_upper"):
+                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker} | 현재가: {price:,} {change_str}\n{link}")
+            record_summary(i, ticker, "BBU 상단 돌파", change_str)
 # ──────────────── 실시간 가격 처리 ────────────────
 async def process_queue():
     while True:
@@ -140,3 +159,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
