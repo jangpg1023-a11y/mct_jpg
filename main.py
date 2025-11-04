@@ -35,7 +35,7 @@ async def send_summary_if_due():
     while True:
         await asyncio.sleep(60)
         now = datetime.now().timestamp()
-        if now - last_summary_time >= 1800:  # ✅ 테스트용 30분
+        if now - last_summary_time >= 1800:
             lines = ["📊 요약 메시지 (30분 주기)"]
             for i in [2, 1, 0]:
                 lines.append(f"\n[D-{i}]")
@@ -80,18 +80,17 @@ def check_conditions(ticker, price):
     is_weekly_bullish = last_week_close > last_week_open or price > last_week_close
 
     for i in [2, 1, 0]:
-        idx = -1 - i
         try:
-            prev_close = close[idx - 1]
-            curr_close = close[idx]
-            prev_ma120 = ma120[idx - 1]
-            curr_ma120 = ma120[idx]
-            prev_bbd = bbd[idx - 1]
-            curr_bbd = bbd[idx]
-            prev_bbu = bbu[idx - 1]
-            curr_bbu = bbu[idx]
-            prev_ma7 = ma7[idx - 1]
-            curr_ma7 = ma7[idx]
+            prev_close = close[-2 - i]
+            curr_close = close[-1 - i]
+            prev_ma7 = ma7[-2 - i]
+            curr_ma7 = ma7[-1 - i]
+            prev_ma120 = ma120[-2 - i]
+            curr_ma120 = ma120[-1 - i]
+            prev_bbd = bbd[-2 - i]
+            curr_bbd = bbd[-1 - i]
+            prev_bbu = bbu[-2 - i]
+            curr_bbu = bbu[-1 - i]
         except:
             continue
 
