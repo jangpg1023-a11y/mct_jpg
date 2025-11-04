@@ -152,7 +152,7 @@ def send_past_summary():
         # 각 날짜별로 중복 제거 (전체 간섭 없음)
         unique_entries = list(dict.fromkeys(entries))
         msg += f"\nD-{i} ({len(unique_entries)})\n"
-        msg += "\n".join([f"• {e}" for e in uniqueentries]) if uniqueentries else "•\n"
+        msg += "\n".join([f"• {e}" for e in unique_entries]) if unique_entries else "•\n"
     send_message(msg)
     
 # ──────────────── 요약 루프 (3시간마다) ────────────────
@@ -177,5 +177,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
