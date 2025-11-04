@@ -196,16 +196,20 @@ async def send_summary_if_due():
             message = f"🗒️ 요약 리포트 ({datetime.now().strftime('%m/%d %H:%M')})\n"
             for i in [2, 1, 0]:
                 entries = summary_log[i]
-                message += f"\n📆 D-{i} ({len(entries)}종목)\n"
-                if entries:
-                    for entry in entries:
+                message += f"\n📆 D-{i} ({len(set([e.split(':')[0] for e in entries]))}종목)\n"
+
+                seen_tickers = set()
+                for entry in entries:
+                    ticker = entry.split(":")[0]
+                    if ticker not in seen_tickers:
                         message += f"• {entry}\n"
-                else:
+                        seen_tickers.add(ticker)
+
+                if not seen_tickers:
                     message += "• 해당 없음\n"
 
             send_message(message)
         await asyncio.sleep(60)
-
 # 메인 함수
 async def main():
     send_message("📡 웹소켓 기반 감시 시스템 시작")
@@ -219,3 +223,4 @@ async def main():
 # 실행 진입점
 if __name__ == "__main__":
     asyncio.run(main())
+
