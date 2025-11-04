@@ -62,16 +62,22 @@ async def clear_d0_cache_loop():
 def check_conditions(ticker, price):
     df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
     weekly = pyupbit.get_ohlcv(ticker, interval="week", count=3)
-    if df is None or weekly is None or len(df) < 130 or len(weekly) < 2:
+    if df is None or weekly is None or len(df) < 125 or len(weekly) < 2:
         return
 
     close = df['close'].tolist()
     open_price = df['open'].iloc[-1]
     change_str = "N/A" if open_price == 0 else f"{((price - open_price) / open_price) * 100:+.2f}%"
 
-    ma7 = [mean(close[i-7:i]) for i in range(7, len(close)+1)]
-    ma120 = [mean(close[i-120:i]) for i in range(120, len(close)+1)]
-    std120 = [stdev(close[i-120:i]) for i in range(120, len(close)+1)]
+    # 지표 계산
+    ma7 = df['close'].rolling(window=7).mean().dropna().tolist()
+    ma120 = df['close'].rolling(window=120).mean().dropna().tolist()
+    std120 = df['close'].rolling(window=120).std().dropna().tolist()
+
+    offset_ma7 = len(close) - len(ma7)
+    offset_ma120 = len(close) - len(ma120)
+    offset_std120 = len(close) - len(std120)
+
     bbd = [ma120[i] - 2 * std120[i] for i in range(len(ma120))]
     bbu = [ma120[i] + 2 * std120[i] for i in range(len(ma120))]
 
@@ -83,10 +89,11 @@ def check_conditions(ticker, price):
         try:
             prev_close = close[-2 - i]
             curr_close = close[-1 - i]
-            prev_ma7 = ma7[-2 - i]
-            curr_ma7 = ma7[-1 - i]
-            prev_ma120 = ma120[-2 - i]
-            curr_ma120 = ma120[-1 - i]
+
+            prev_ma7 = ma7[-2 - i - offset_ma7]
+            curr_ma7 = ma7[-1 - i - offset_ma7]
+            prev_ma120 = ma120[-2 - i - offset_ma120]
+            curr_ma120 = ma120[-1 - i - offset_ma120]
             prev_bbd = bbd[-2 - i]
             curr_bbd = bbd[-1 - i]
             prev_bbu = bbu[-2 - i]
