@@ -67,7 +67,8 @@ def record_summary(day_index, ticker, condition, change_str):
 def send_summary_if_due():
     global last_summary_time
     now = time.time()
-    if now - last_summary_time >= 14400:  # 4시간
+
+    if now - last_summary_time >= 14400:  # 4시간마다 실행
         lines = ["📊 4시간 요약"]
         for i in [2, 1, 0]:
             lines.append(f"\n[D-{i}]")
@@ -77,6 +78,7 @@ def send_summary_if_due():
                 lines.append("조건을 만족한 종목 없음")
         send_message("\n".join(lines))
 
+        # 캐시 및 로그 초기화
         for i in [2, 1]:
             for key in list(alert_cache.keys()):
                 if f"_D{i}_" in key:
