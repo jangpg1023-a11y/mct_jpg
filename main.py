@@ -145,14 +145,16 @@ async def analyze_past_conditions():
         await asyncio.sleep(0.2)
 
 # ──────────────── 요약 메시지 전송 ────────────────
-def send_past_summary():
+def send_past_summary():():
     msg = f"📊 조건 요약 ({datetime.now().strftime('%m/%d %H:%M')})\n"
     for i in [0, 1, 2]:
         entries = summary_log[i]
-        msg += f"\n📆 D-{i} ({len(entries)})\n"
-        msg += "\n".join([f"• {e}" for e in entries]) if entries else "•\n"
+        # 각 날짜별로 중복 제거 (전체 간섭 없음)
+        unique_entries = list(dict.fromkeys(entries))
+        msg += f"\nD-{i} ({len(unique_entries)})\n"
+        msg += "\n".join([f"• {e}" for e in uniqueentries]) if uniqueentries else "•\n"
     send_message(msg)
-
+    
 # ──────────────── 요약 루프 (3시간마다) ────────────────
 async def daily_summary_loop():
     while True:
@@ -175,3 +177,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
