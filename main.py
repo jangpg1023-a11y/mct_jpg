@@ -145,7 +145,7 @@ async def analyze_past_conditions():
         await asyncio.sleep(0.2)
 
 # ──────────────── 요약 메시지 전송 ────────────────
-def send_past_summary():():
+def send_past_summary():
     msg = f"📊 조건 요약 ({datetime.now().strftime('%m/%d %H:%M')})\n"
     for i in [0, 1, 2]:
         entries = summary_log[i]
@@ -177,4 +177,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
