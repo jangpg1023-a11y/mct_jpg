@@ -1,5 +1,5 @@
 import asyncio, websockets, json, pyupbit, requests, os, time
-from datetime import datetime
+from datetime import datetime, timezone
 from keep_alive import keep_alive
 
 # ──────────────── 기본 설정 ────────────────
@@ -39,7 +39,7 @@ def send_message(text):
         print(f"[텔레그램 오류] {e}")
 
 # ──────────────── 웹소켓 가격 수신 ────────────────
-async def run_ws():
+async def run_ws(watchlist):
     uri = "wss://api.upbit.com/websocket/v1"
     while True:
         try:
@@ -55,12 +55,26 @@ async def run_ws():
 
 # ──────────────── OHLCV 캐시 ────────────────
 def get_ohlcv_cached(ticker):
-    if ticker in ohlcv_cache and time.time() - ohlcv_cache[ticker]['time'] < 60:
+    now = time.time()
+
+    # 오래된 캐시 제거 (5분 이상된 항목 삭제)
+    expired_keys = [key for key, val in ohlcv_cache.items() if now - val['time'] > 5]
+    for key in expired_keys:
+        del ohlcv_cache[key]
+
+    # 캐시가 유효하면 반환
+    if ticker in ohlcv_cache and now - ohlcv_cache[ticker]['time'] < 60:
         return ohlcv_cache[ticker]['df'], ohlcv_cache[ticker]['weekly']
+
+    # 새로 받아와서 캐시에 저장
     try:
         df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
         weekly = pyupbit.get_ohlcv(ticker, interval="week", count=3)
-        ohlcv_cache[ticker] = {'df': df, 'weekly': weekly, 'time': time.time()}
+        ohlcv_cache[ticker] = {
+            'df': df,
+            'weekly': weekly,
+            'time': now
+        }
         return df, weekly
     except:
         return None, None
@@ -86,7 +100,7 @@ def should_alert(key, cooldown=1800):
 # ──────────────── 요약 기록 ────────────────
 def record_summary(day_index, ticker, condition_text, change_str):
     if day_index in summary_log:
-        summary_log[day_index].append(f"{ticker} | {condition_text} {change_str}")
+        summary_log[day_index].append(f"{ticker} | {condition_text} | {change_str}")
 
 # ──────────────── 조건 검사 ────────────────
 def check_conditions(ticker, price, day_indexes=[0]):
@@ -96,8 +110,6 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
     open_price = df['open'].iloc[-1]
     change_str = f"{((price - open_price) / open_price) * 100:+.2f}%" if open_price else "N/A"
-    formatted_price = format_price(price)
-    link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
     is_weekly_bullish = weekly['close'].iloc[-2] > weekly['open'].iloc[-2] or price > weekly['close'].iloc[-2]
 
     for i in day_indexes:
@@ -114,18 +126,18 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
         if is_weekly_bullish and pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
             if i == 0 and should_alert(key + "bbd_ma7"):
-                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
-            record_summary(i, ticker, "BBD + MA7 돌파", change_str)
+                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
+            record_summary(i, ticker, "BBD", change_str)
 
         if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
             if i == 0 and should_alert(key + "ma120_ma7"):
-                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
-            record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
+                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
+            record_summary(i, ticker, "MA", change_str)
 
         if pc < bbup and cc > bbuc:
             if i == 0 and should_alert(key + "bollinger_upper"):
-                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
-            record_summary(i, ticker, "BBU 상단 돌파", change_str)
+                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
+            record_summary(i, ticker, "BBU", change_str)
 
 # ──────────────── 실시간 가격 처리 ────────────────
 async def process_queue():
@@ -142,36 +154,43 @@ async def analyze_past_conditions():
     for ticker in watchlist:
         price = pyupbit.get_current_price(ticker) or 0
         check_conditions(ticker, price, day_indexes=[1, 2])
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)
 
 # ──────────────── 요약 메시지 전송 ────────────────
 def send_past_summary():
-    msg = f"📊 조건 요약 ({datetime.now().strftime('%m/%d %H:%M')})\n"
+    msg = f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
     for i in [0, 1, 2]:
         entries = summary_log[i]
-        # 각 날짜별로 중복 제거 (전체 간섭 없음)
         unique_entries = list(dict.fromkeys(entries))
-        msg += f"\nD-{i} ({len(unique_entries)})\n"
-        msg += "\n".join([f"• {e}" for e in uniqueentries]) if unique_entries else "•\n"
-    send_message(msg)
+        msg += f"D-{i}\n"
+        if unique_entries:
+            for entry in unique_entries:
+                parts = entry.split(" | ")
+                if len(parts) == 3:
+                    symbol, condition, change = parts
+                    msg += f"   {symbol}  {condition}  {change}\n"
+        else:
+            msg += "   (조건 충족 없음)\n"
+        msg += "\n"
+    send_message(msg.strip())
 
 # ──────────────── 요약 루프 (3시간마다) ────────────────
 async def daily_summary_loop():
     while True:
-        await analyze_past_conditions()
+        await analyze_past_conditions()           # 초기 D-1, D-2 분석
         send_past_summary()
-        await asyncio.sleep(60 * 60 * 3)
+        await asyncio.sleep(60 * 60 * 3)          # 3시간마다 D-1, D-2 분석
 
 # ──────────────── 메인 루프 ────────────────
 async def main():
     global watchlist
     watchlist = get_all_krw_tickers()
-    send_message("📡 전체 종목 감시 시작")
-    asyncio.create_task(run_ws())
-    asyncio.create_task(process_queue())
-    asyncio.create_task(daily_summary_loop())
-    await analyze_past_conditions()
-    send_past_summary()
+    send_message("📡 종목 감시 시작")
+
+    asyncio.create_task(run_ws(watchlist))         # D-0 실시간 감시
+    asyncio.create_task(process_queue())           # D-0 조건 평가
+    asyncio.create_task(daily_summary_loop())      # D-1, D-2 분석 및 요약
+
     while True:
         await asyncio.sleep(60)
 
