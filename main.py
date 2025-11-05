@@ -27,16 +27,9 @@ def format_price(price):
     else:
         return f"{price:,.4f}"
 
-# ──────────────── 1원 이상 KRW 종목 필터링 ────────────────
-def get_filtered_krw_tickers(min_price=1):
-    all_tickers = pyupbit.get_tickers(fiat="KRW")
-    filtered = []
-    for ticker in all_tickers:
-        price = pyupbit.get_current_price(ticker)
-        if price and price >= min_price:
-            filtered.append(ticker)
-        time.sleep(0.05)
-    return filtered
+# ──────────────── 전체 KRW 종목 불러오기 ────────────────
+def get_all_krw_tickers():
+    return pyupbit.get_tickers(fiat="KRW")
 
 # ──────────────── 텔레그램 메시지 ────────────────
 def send_message(text):
@@ -95,6 +88,72 @@ def record_summary(day_index, ticker, condition_text, change_str):
     if day_index in summary_log:
         summary_log[day_index].append(f"{ticker} | {condition_text} {change_str}")
 
+# ──────────────── 실시간 조건 검사 (D-0) ────────────────
+def check_conditions_realtime(ticker, price):
+    df, weekly = get_ohlcv_cached(ticker)
+    if df is None or weekly is None or len(df) < 125: return
+    df = calculate_indicators(df)
+
+    open_price = df['open'].iloc[-1]
+    change_str = f"{((price - open_price) / open_price) * 100:+.2f}%" if open_price else "N/A"
+    formatted_price = format_price(price)
+    link = f"https://upbit.com/exchange?code=CRIX.UPBIT.{ticker}"
+    is_weekly_bullish = weekly['close'].iloc[-2] > weekly['open'].iloc[-2] or price > weekly['close'].iloc[-2]
+
+    try:
+        pc, cc = df['close'].iloc[-2], df['close'].iloc[-1]
+        ma7p, ma7c = df['MA7'].iloc[-2], df['MA7'].iloc[-1]
+        ma120p, ma120c = df['MA120'].iloc[-2], df['MA120'].iloc[-1]
+        bbdp, bbdc = df['BBD'].iloc[-2], df['BBD'].iloc[-1]
+        bbup, bbuc = df['BBU'].iloc[-2], df['BBU'].iloc[-1]
+    except: return
+
+    key = f"{ticker}_D0_{datetime.now().date()}_"
+
+    if is_weekly_bullish and pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
+        if should_alert(key + "bbd_ma7"):
+            send_message(f"📉 BBD + MA7 돌파 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
+        record_summary(0, ticker, "BBD + MA7 돌파", change_str)
+
+    if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
+        if should_alert(key + "ma120_ma7"):
+            send_message(f"➖ MA120 + MA7 돌파 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
+        record_summary(0, ticker, "MA120 + MA7 돌파", change_str)
+
+    if pc < bbup and cc > bbuc:
+        if should_alert(key + "bollinger_upper"):
+            send_message(f"📈 BBU 상단 돌파 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
+        record_summary(0, ticker, "BBU 상단 돌파", change_str)
+
+# ──────────────── 과거 조건 분석 (D-1, D-2) ────────────────
+def check_conditions_historical(ticker, price, day_indexes=[1, 2]):
+    df, weekly = get_ohlcv_cached(ticker)
+    if df is None or weekly is None or len(df) < 125: return
+    df = calculate_indicators(df)
+
+    open_price = df['open'].iloc[-1]
+    change_str = f"{((price - open_price) / open_price) * 100:+.2f}%" if open_price else "N/A"
+    is_weekly_bullish = weekly['close'].iloc[-2] > weekly['open'].iloc[-2] or price > weekly['close'].iloc[-2]
+
+    for i in day_indexes:
+        try:
+            idx, prev = -1 - i, -2 - i
+            pc, cc = df['close'].iloc[prev], df['close'].iloc[idx]
+            ma7p, ma7c = df['MA7'].iloc[prev], df['MA7'].iloc[idx]
+            ma120p, ma120c = df['MA120'].iloc[prev], df['MA120'].iloc[idx]
+            bbdp, bbdc = df['BBD'].iloc[prev], df['BBD'].iloc[idx]
+            bbup, bbuc = df['BBU'].iloc[prev], df['BBU'].iloc[idx]
+        except: continue
+
+        if is_weekly_bullish and pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
+            record_summary(i, ticker, "BBD + MA7 돌파", change_str)
+
+        if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
+            record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
+
+        if pc < bbup and cc > bbuc:
+            record_summary(i, ticker, "BBU 상단 돌파", change_str)
+
 # ──────────────── 실시간 가격 처리 ────────────────
 async def process_realtime():
     while True:
@@ -103,7 +162,7 @@ async def process_realtime():
             check_conditions_realtime(ticker, price)
         await asyncio.sleep(0.5)
 
-# ──────────────── 과거 조건 분석 ────────────────
+# ──────────────── 과거 조건 분석 루프 ────────────────
 async def analyze_historical_conditions():
     summary_log[1] = []
     summary_log[2] = []
@@ -132,7 +191,7 @@ async def daily_summary_loop():
 # ──────────────── 메인 루프 ────────────────
 async def main():
     global watchlist
-    watchlist = get_filtered_krw_tickers()
+    watchlist = get_all_krw_tickers()
     send_message("📡 실시간 감시 시작")
     asyncio.create_task(run_ws())
     asyncio.create_task(process_realtime())
