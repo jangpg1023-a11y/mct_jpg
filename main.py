@@ -233,7 +233,6 @@ async def main():
 
     # 시작 시 과거 분석 및 요약 전송
     await analyze_historical_conditions()
-    send_past_summary()
 
     # 메인 루프 유지
     while True:
@@ -242,3 +241,4 @@ async def main():
 # 실행 시작
 if __name__ == "__main__":
     asyncio.run(main())
+
