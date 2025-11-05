@@ -28,7 +28,7 @@ def send_message(text):
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
-def should_alert(key, cooldown=1800):
+def should_alert(key, cooldown=300):
     last_time = alert_cache.get(key)
     if last_time and time.time() - last_time < cooldown:
         return False
@@ -37,7 +37,9 @@ def should_alert(key, cooldown=1800):
 
 def record_summary(day_index, ticker, condition_text, change_str):
     if day_index in summary_log:
-        summary_log[day_index].append(f"{ticker} | {condition_text} {change_str}")
+        symbol = ticker.replace("KRW-", "")
+        change = change_str.replace("(", "").replace(")", "")
+        summary_log[day_index].append(f"{symbol} | {condition_text} | {change}")
 
 # ──────────────── 종목 및 데이터 ────────────────
 def get_all_krw_tickers():
@@ -70,7 +72,8 @@ def calculate_indicators(df):
     df['BBD'] = df['MA120'] - 2 * df['STD120']
     return df
 
-# ──────────────── 조건 검사 ────────────────
+# ──────────────── 2부 ────────────────
+
 def check_conditions_realtime(ticker, price):
     df, weekly = get_ohlcv_cached(ticker)
     if df is None or weekly is None or len(df) < 125: return
@@ -135,7 +138,28 @@ def check_conditions_historical(ticker, price, day_indexes=[1, 2]):
         if pc < bbup and cc > bbuc:
             record_summary(i, ticker, "BBU 상단 돌파", change_str)
 
-# ──────────────── 루프 처리 ────────────────
+async def run_ws():
+    uri = "wss://api.upbit.com/websocket/v1"
+    tickers = get_all_krw_tickers()
+    subscribe_data = [{"ticket": "summary"}, {"type": "ticker", "codes": tickers}]
+
+    while True:
+        try:
+            async with websockets.connect(uri) as websocket:
+                await websocket.send(json.dumps(subscribe_data))
+                while True:
+                    data = await websocket.recv()
+                    parsed = json.loads(data)
+                    ticker = parsed['code']
+                    price = parsed['trade_price']
+                    await price_queue.put((ticker, price))
+        except Exception as e:
+            print(f"[웹소켓 오류] 재연결 시도 중... {e}")
+            await asyncio.sleep(5)
+
+# ──────────────── 3부 ────────────────
+
+# 실시간 가격 처리 루프
 async def process_realtime():
     while True:
         if not price_queue.empty():
@@ -143,6 +167,7 @@ async def process_realtime():
             check_conditions_realtime(ticker, price)
         await asyncio.sleep(0.5)
 
+# 과거 조건 분석 루프 (D-1, D-2)
 async def analyze_historical_conditions():
     summary_log[1] = []
     summary_log[2] = []
@@ -151,39 +176,73 @@ async def analyze_historical_conditions():
         check_conditions_historical(ticker, price)
         await asyncio.sleep(0.2)
 
+# 요약 메시지 전송
 def send_past_summary():
-    msg = f"📊 조건 요약 ({datetime.now().strftime('%m/%d %H:%M')})\n"
-    for i in [0, 1, 2]:
-        entries = summary_log[i]
-        unique_entries = list(dict.fromkeys(entries))
-        msg += f"\nD-{i} ({len(unique_entries)})\n"
-        msg += "\n".join([f"• {e}" for e in unique_entries]) if unique_entries else "•\n"
-    send_message(msg)
+    msg = f"📊 Summary (UTC {datetime.utcnow().strftime('%m/%d %H:%M')})\n\n"
+    condition_labels = {
+        "BBD + MA7 돌파": ("📉", "BBD 조건"),
+        "MA120 + MA7 돌파": ("➖", "MA 조건"),
+        "BBU 상단 돌파": ("📈", "BBU 조건")
+    }
+    indent = " " * 3
 
+    for day in [0, 1, 2]:
+        msg += f"D-{day}\n"
+        entries = summary_log[day]
+        if not entries:
+            msg += "\n"
+            continue
+        grouped = {key: [] for key in condition_labels}
+        for entry in entries:
+            for key in condition_labels:
+                if key in entry:
+                    grouped[key].append(entry)
+
+        for key, (emoji, label) in condition_labels.items():
+            if grouped[key]:
+                msg += f"{emoji} {label}\n"
+                for e in dict.fromkeys(grouped[key]):
+                    parts = e.split(" | ")
+                    symbol = parts[0]
+                    change = parts[-1]
+                    msg += f"{indent}{symbol} {change}\n"
+                msg += "\n"
+
+    send_message(msg.strip())
+
+# 3시간마다 과거 요약 전송 루프
 async def daily_summary_loop():
     while True:
         await analyze_historical_conditions()
         send_past_summary()
         await asyncio.sleep(60 * 60 * 3)
 
+# 캐시 정리 루프
 async def cleanup_loop():
     while True:
         cleanup_cache()
         await asyncio.sleep(300)
 
-# ──────────────── 메인 실행 ────────────────
+# 메인 실행 함수
 async def main():
     global watchlist
     watchlist = get_all_krw_tickers()
     send_message("📡 실시간 감시 시작")
+
+    # 병렬 작업 실행
     asyncio.create_task(run_ws())
     asyncio.create_task(process_realtime())
     asyncio.create_task(daily_summary_loop())
     asyncio.create_task(cleanup_loop())
+
+    # 시작 시 과거 분석 및 요약 전송
     await analyze_historical_conditions()
     send_past_summary()
+
+    # 메인 루프 유지
     while True:
         await asyncio.sleep(60)
 
+# 실행 시작
 if __name__ == "__main__":
     asyncio.run(main())
