@@ -2,7 +2,7 @@ import asyncio, websockets, json, pyupbit, requests, os, time
 from datetime import datetime
 from keep_alive import keep_alive
 
-# ──────────────── 기본 설정 ────────────────
+# ──────────────── 설정 ────────────────
 keep_alive()
 BOT_TOKEN = os.environ['BOT_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
@@ -14,58 +14,53 @@ ohlcv_cache = {}
 summary_log = {0: [], 1: [], 2: []}
 watchlist = []
 
-# ──────────────── 가격 포맷 ────────────────
+# ──────────────── 유틸 함수 ────────────────
 def format_price(price):
-    if price >= 100_000:
-        return f"{price:,.0f}"
-    elif price >= 10_000:
-        return f"{price:,.1f}"
-    elif price >= 1_000:
-        return f"{price:,.2f}"
-    elif price >= 10:
-        return f"{price:,.3f}"
-    else:
-        return f"{price:,.4f}"
+    if price >= 100_000: return f"{price:,.0f}"
+    elif price >= 10_000: return f"{price:,.1f}"
+    elif price >= 1_000: return f"{price:,.2f}"
+    elif price >= 10: return f"{price:,.3f}"
+    else: return f"{price:,.4f}"
 
-# ──────────────── 전체 KRW 종목 불러오기 ────────────────
-def get_all_krw_tickers():
-    return pyupbit.get_tickers(fiat="KRW")
-
-# ──────────────── 텔레그램 메시지 ────────────────
 def send_message(text):
     try:
         requests.post(TELEGRAM_URL, data={'chat_id': CHAT_ID, 'text': text})
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
-# ──────────────── 웹소켓 가격 수신 ────────────────
-async def run_ws():
-    uri = "wss://api.upbit.com/websocket/v1"
-    while True:
-        try:
-            async with websockets.connect(uri) as ws:
-                sub = [{"ticket": "test"}, {"type": "ticker", "codes": watchlist}]
-                await ws.send(json.dumps(sub))
-                while True:
-                    msg = json.loads(await ws.recv())
-                    await price_queue.put((msg['code'], msg['trade_price']))
-        except Exception as e:
-            print(f"[웹소켓 오류] {e}")
-            await asyncio.sleep(5)
+def should_alert(key, cooldown=1800):
+    last_time = alert_cache.get(key)
+    if last_time and time.time() - last_time < cooldown:
+        return False
+    alert_cache[key] = time.time()
+    return True
 
-# ──────────────── OHLCV 캐시 ────────────────
+def record_summary(day_index, ticker, condition_text, change_str):
+    if day_index in summary_log:
+        summary_log[day_index].append(f"{ticker} | {condition_text} {change_str}")
+
+# ──────────────── 종목 및 데이터 ────────────────
+def get_all_krw_tickers():
+    return pyupbit.get_tickers(fiat="KRW")
+
 def get_ohlcv_cached(ticker):
-    if ticker in ohlcv_cache and time.time() - ohlcv_cache[ticker]['time'] < 60:
+    now = time.time()
+    if ticker in ohlcv_cache and now - ohlcv_cache[ticker]['time'] < 60:
         return ohlcv_cache[ticker]['df'], ohlcv_cache[ticker]['weekly']
     try:
         df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
         weekly = pyupbit.get_ohlcv(ticker, interval="week", count=3)
-        ohlcv_cache[ticker] = {'df': df, 'weekly': weekly, 'time': time.time()}
+        ohlcv_cache[ticker] = {'df': df, 'weekly': weekly, 'time': now}
         return df, weekly
     except:
         return None, None
 
-# ──────────────── 기술 지표 계산 ────────────────
+def cleanup_cache():
+    now = time.time()
+    for k in list(ohlcv_cache.keys()):
+        if now - ohlcv_cache[k]['time'] > 600:
+            del ohlcv_cache[k]
+
 def calculate_indicators(df):
     close = df['close']
     df['MA7'] = close.rolling(7).mean()
@@ -75,20 +70,7 @@ def calculate_indicators(df):
     df['BBD'] = df['MA120'] - 2 * df['STD120']
     return df
 
-# ──────────────── 알림 중복 방지 ────────────────
-def should_alert(key, cooldown=1800):
-    last_time = alert_cache.get(key)
-    if last_time and time.time() - last_time < cooldown:
-        return False
-    alert_cache[key] = time.time()
-    return True
-
-# ──────────────── 요약 기록 ────────────────
-def record_summary(day_index, ticker, condition_text, change_str):
-    if day_index in summary_log:
-        summary_log[day_index].append(f"{ticker} | {condition_text} {change_str}")
-
-# ──────────────── 실시간 조건 검사 (D-0) ────────────────
+# ──────────────── 조건 검사 ────────────────
 def check_conditions_realtime(ticker, price):
     df, weekly = get_ohlcv_cached(ticker)
     if df is None or weekly is None or len(df) < 125: return
@@ -125,7 +107,6 @@ def check_conditions_realtime(ticker, price):
             send_message(f"📈 BBU 상단 돌파 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
         record_summary(0, ticker, "BBU 상단 돌파", change_str)
 
-# ──────────────── 과거 조건 분석 (D-1, D-2) ────────────────
 def check_conditions_historical(ticker, price, day_indexes=[1, 2]):
     df, weekly = get_ohlcv_cached(ticker)
     if df is None or weekly is None or len(df) < 125: return
@@ -154,7 +135,7 @@ def check_conditions_historical(ticker, price, day_indexes=[1, 2]):
         if pc < bbup and cc > bbuc:
             record_summary(i, ticker, "BBU 상단 돌파", change_str)
 
-# ──────────────── 실시간 가격 처리 ────────────────
+# ──────────────── 루프 처리 ────────────────
 async def process_realtime():
     while True:
         if not price_queue.empty():
@@ -162,7 +143,6 @@ async def process_realtime():
             check_conditions_realtime(ticker, price)
         await asyncio.sleep(0.5)
 
-# ──────────────── 과거 조건 분석 루프 ────────────────
 async def analyze_historical_conditions():
     summary_log[1] = []
     summary_log[2] = []
@@ -171,7 +151,6 @@ async def analyze_historical_conditions():
         check_conditions_historical(ticker, price)
         await asyncio.sleep(0.2)
 
-# ──────────────── 요약 메시지 전송 ────────────────
 def send_past_summary():
     msg = f"📊 조건 요약 ({datetime.now().strftime('%m/%d %H:%M')})\n"
     for i in [0, 1, 2]:
@@ -181,14 +160,18 @@ def send_past_summary():
         msg += "\n".join([f"• {e}" for e in unique_entries]) if unique_entries else "•\n"
     send_message(msg)
 
-# ──────────────── 요약 루프 (3시간마다) ────────────────
 async def daily_summary_loop():
     while True:
         await analyze_historical_conditions()
         send_past_summary()
         await asyncio.sleep(60 * 60 * 3)
 
-# ──────────────── 메인 루프 ────────────────
+async def cleanup_loop():
+    while True:
+        cleanup_cache()
+        await asyncio.sleep(300)
+
+# ──────────────── 메인 실행 ────────────────
 async def main():
     global watchlist
     watchlist = get_all_krw_tickers()
@@ -196,6 +179,7 @@ async def main():
     asyncio.create_task(run_ws())
     asyncio.create_task(process_realtime())
     asyncio.create_task(daily_summary_loop())
+    asyncio.create_task(cleanup_loop())
     await analyze_historical_conditions()
     send_past_summary()
     while True:
