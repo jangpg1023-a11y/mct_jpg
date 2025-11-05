@@ -35,11 +35,11 @@ def should_alert(key, cooldown=300):
     alert_cache[key] = time.time()
     return True
 
-def record_summary(day_index, ticker, condition_text, change_str):
+def record_summary(day_index, ticker, condition_key, change_str):
     if day_index in summary_log:
         symbol = ticker.replace("KRW-", "")
         change = change_str.replace("(", "").replace(")", "")
-        summary_log[day_index].append(f"{symbol} | {condition_text} | {change}")
+        summary_log[day_index].append(f"{symbol} | {condition_key} | {change}")
 
 # ──────────────── 종목 및 데이터 ────────────────
 def get_all_krw_tickers():
@@ -72,8 +72,6 @@ def calculate_indicators(df):
     df['BBD'] = df['MA120'] - 2 * df['STD120']
     return df
 
-# ──────────────── 2부 ────────────────
-
 def check_conditions_realtime(ticker, price):
     df, weekly = get_ohlcv_cached(ticker)
     if df is None or weekly is None or len(df) < 125: return
@@ -97,18 +95,18 @@ def check_conditions_realtime(ticker, price):
 
     if is_weekly_bullish and pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
         if should_alert(key + "bbd_ma7"):
-            send_message(f"📉 BBD + MA7 돌파 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
-        record_summary(0, ticker, "BBD + MA7 돌파", change_str)
+            send_message(f"📉 BBD 조건 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
+        record_summary(0, ticker, "BBD 조건", change_str)
 
     if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
         if should_alert(key + "ma120_ma7"):
-            send_message(f"➖ MA120 + MA7 돌파 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
-        record_summary(0, ticker, "MA120 + MA7 돌파", change_str)
+            send_message(f"➖ MA 조건 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
+        record_summary(0, ticker, "MA 조건", change_str)
 
     if pc < bbup and cc > bbuc:
         if should_alert(key + "bollinger_upper"):
-            send_message(f"📈 BBU 상단 돌파 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
-        record_summary(0, ticker, "BBU 상단 돌파", change_str)
+            send_message(f"📈 BBU 조건 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
+        record_summary(0, ticker, "BBU 조건", change_str)
 
 def check_conditions_historical(ticker, price, day_indexes=[1, 2]):
     df, weekly = get_ohlcv_cached(ticker)
@@ -130,13 +128,13 @@ def check_conditions_historical(ticker, price, day_indexes=[1, 2]):
         except: continue
 
         if is_weekly_bullish and pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
-            record_summary(i, ticker, "BBD + MA7 돌파", change_str)
+            record_summary(i, ticker, "BBD 조건", change_str)
 
         if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
-            record_summary(i, ticker, "MA120 + MA7 돌파", change_str)
+            record_summary(i, ticker, "MA 조건", change_str)
 
         if pc < bbup and cc > bbuc:
-            record_summary(i, ticker, "BBU 상단 돌파", change_str)
+            record_summary(i, ticker, "BBU 조건", change_str)
 
 async def run_ws():
     uri = "wss://api.upbit.com/websocket/v1"
@@ -156,8 +154,6 @@ async def run_ws():
         except Exception as e:
             print(f"[웹소켓 오류] 재연결 시도 중... {e}")
             await asyncio.sleep(5)
-
-# ──────────────── 3부 ────────────────
 
 # 실시간 가격 처리 루프
 async def process_realtime():
@@ -179,10 +175,10 @@ async def analyze_historical_conditions():
 # 요약 메시지 전송
 def send_past_summary():
     msg = f"📊 Summary (UTC {datetime.utcnow().strftime('%m/%d %H:%M')})\n\n"
-    condition_labels = {
-        "BBD + MA7 돌파": ("📉", "BBD 조건"),
-        "MA120 + MA7 돌파": ("➖", "MA 조건"),
-        "BBU 상단 돌파": ("📈", "BBU 조건")
+    emoji_map = {
+        "BBD 조건": "📉",
+        "MA 조건": "➖",
+        "BBU 조건": "📈"
     }
     indent = " " * 3
 
@@ -192,25 +188,25 @@ def send_past_summary():
         if not entries:
             msg += "\n"
             continue
-        grouped = {key: [] for key in condition_labels}
-        for entry in entries:
-            for key in condition_labels:
-                if key in entry:
-                    grouped[key].append(entry)
 
-        for key, (emoji, label) in condition_labels.items():
-            if grouped[key]:
-                msg += f"{emoji} {label}\n"
-                for e in dict.fromkeys(grouped[key]):
-                    parts = e.split(" | ")
-                    symbol = parts[0]
-                    change = parts[-1]
-                    msg += f"{indent}{symbol} {change}\n"
-                msg += "\n"
+        grouped = {}
+        for entry in entries:
+            parts = entry.split(" | ")
+            if len(parts) != 3:
+                continue
+            symbol, condition, change = parts
+            grouped.setdefault(condition, []).append(f"{symbol} | {change}")
+
+        for condition, items in grouped.items():
+            emoji = emoji_map.get(condition, "🔔")
+            msg += f"{emoji} {condition}\n"
+            for item in dict.fromkeys(items):  # 중복 제거
+                msg += f"{indent}{item}\n"
+            msg += "\n"
 
     send_message(msg.strip())
 
-# 3시간마다 과거 요약 전송 루프
+# 3시간마다 과거 조건 분석 및 요약 전송
 async def daily_summary_loop():
     while True:
         await analyze_historical_conditions()
