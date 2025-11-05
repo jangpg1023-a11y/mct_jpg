@@ -1,5 +1,5 @@
 import asyncio, websockets, json, pyupbit, requests, os, time
-from datetime import datetime
+from datetime import datetime, timezone
 from keep_alive import keep_alive
 
 # ──────────────── 설정 ────────────────
@@ -8,11 +8,11 @@ BOT_TOKEN = os.environ['BOT_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
-price_queue = asyncio.Queue()             # 실시간 가격 큐
-alert_cache = {}                          # 알림 중복 방지
-ohlcv_cache = {}                          # OHLCV 캐시
-summary_log = {0: [], 1: [], 2: []}       # D-0, D-1, D-2 요약 저장
-btc_tracker = {"price": None, "open": None}  # 비트코인 가격 추적
+price_queue = asyncio.Queue()
+alert_cache = {}
+ohlcv_cache = {}
+summary_log = {0: [], 1: [], 2: []}
+btc_tracker = {"price": None, "open": None}
 
 # ──────────────── 유틸 함수 ────────────────
 def format_price(price):
@@ -46,7 +46,7 @@ def get_all_krw_tickers():
 
 def get_ohlcv_cached(ticker):
     now = time.time()
-    if ticker in ohlcv_cache and now - ohlcv_cache[ticker]['time'] < 1800:  # ⏱️ 30분 캐시
+    if ticker in ohlcv_cache and now - ohlcv_cache[ticker]['time'] < 1800:
         return ohlcv_cache[ticker]['df'], ohlcv_cache[ticker]['weekly']
     try:
         df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
@@ -65,7 +65,6 @@ def calculate_indicators(df):
     df['BBD'] = df['MA120'] - 2 * df['STD120']
     return df
 
-# ──────────────── 전략 조건 함수 ────────────────
 def is_bbd_condition(df, weekly, pc, cc):
     bbdp, bbdc = df['BBD'].iloc[-2], df['BBD'].iloc[-1]
     ma7p, ma7c = df['MA7'].iloc[-2], df['MA7'].iloc[-1]
@@ -81,7 +80,29 @@ def is_bbu_condition(df, pc, cc):
     bbup, bbuc = df['BBU'].iloc[-2], df['BBU'].iloc[-1]
     return pc < bbup and cc > bbuc
 
-def check_conditions_realtime(ticker, price):  # 실시간 조건 검사
+async def run_ws():
+    uri = "wss://api.upbit.com/websocket/v1"
+    tickers = get_all_krw_tickers()
+    subscribe_data = [{"ticket": "summary"}, {"type": "ticker", "codes": tickers}]
+
+    while True:
+        try:
+            async with websockets.connect(uri) as websocket:
+                await websocket.send(json.dumps(subscribe_data))
+                while True:
+                    data = await websocket.recv()
+                    parsed = json.loads(data)
+                    ticker = parsed['code']
+                    price = parsed['trade_price']
+                    await price_queue.put((ticker, price))
+
+                    if ticker == "KRW-BTC":
+                        btc_tracker["price"] = price
+        except Exception as e:
+            print(f"[웹소켓 오류] {e}")
+            await asyncio.sleep(5)
+
+def check_conditions_realtime(ticker, price):
     df, weekly = get_ohlcv_cached(ticker)
     if df is None or weekly is None or len(df) < 125: return
     df = calculate_indicators(df)
@@ -108,30 +129,7 @@ def check_conditions_realtime(ticker, price):  # 실시간 조건 검사
             send_message(f"📈 BBU 조건 (D-0)\n{ticker} | 현재가: {formatted_price} {change_str}\n{link}")
         record_summary(0, ticker, "BBU 조건", change_str)
 
-async def run_ws():          # 웹소켓으로 실시간 가격 수신
-    uri = "wss://api.upbit.com/websocket/v1"
-    tickers = get_all_krw_tickers()
-    subscribe_data = [{"ticket": "summary"}, {"type": "ticker", "codes": tickers}]
-
-    while True:
-        try:
-            async with websockets.connect(uri) as websocket:
-                await websocket.send(json.dumps(subscribe_data))
-                while True:
-                    data = await websocket.recv()
-                    parsed = json.loads(data)
-                    ticker = parsed['code']
-                    price = parsed['trade_price']
-                    await price_queue.put((ticker, price))
-
-                    if ticker == "KRW-BTC":
-                        btc_tracker["price"] = price
-                        btc_tracker["open"] = parsed.get("opening_price")
-        except Exception as e:
-            print(f"[웹소켓 오류] {e}")
-            await asyncio.sleep(5)
-
-def get_btc_summary():          # 비트코인 현재가 및 변동폭 요약
+def get_btc_summary():
     price = btc_tracker.get("price")
     open_price = btc_tracker.get("open")
     if price and open_price:
@@ -142,10 +140,10 @@ def get_btc_summary():          # 비트코인 현재가 및 변동폭 요약
             f"   - 현재가: {format_price(price)} KRW\n"
             f"   - 변동폭: {change:+.2f}% {direction}\n\n"
         )
-    return " \n\n"
+    return ""  # 정보 없을 경우 생략
 
-def send_past_summary():          # 3시간마다 텔레그램 요약 메시지 전송
-    msg = f"📊 Summary (UTC {datetime.utcnow().strftime('%m/%d %H:%M')})\n\n"
+def send_past_summary():
+    msg = f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
     msg += get_btc_summary()
 
     emoji_map = {
@@ -179,7 +177,7 @@ def send_past_summary():          # 3시간마다 텔레그램 요약 메시지 
 
     send_message(msg.strip())
 
-def check_conditions_historical(ticker, price, day_indexes=[1, 2]):          # 과거 조건 검사
+def check_conditions_historical(ticker, price, day_indexes=[1, 2]):
     df, weekly = get_ohlcv_cached(ticker)
     if df is None or weekly is None or len(df) < 125: return
     df = calculate_indicators(df)
@@ -193,7 +191,7 @@ def check_conditions_historical(ticker, price, day_indexes=[1, 2]):          # �
         if is_bbu_condition(df, pc, cc):
             record_summary(i, ticker, "BBU 조건", f"{((price - df['open'].iloc[-1]) / df['open'].iloc[-1]) * 100:+.2f}%")
 
-async def analyze_historical_conditions():          # D-1, D-2 조건 분석
+async def analyze_historical_conditions():
     tickers = get_all_krw_tickers()
     for ticker in tickers:
         df, weekly = get_ohlcv_cached(ticker)
@@ -204,19 +202,23 @@ async def analyze_historical_conditions():          # D-1, D-2 조건 분석
         price = cc
         check_conditions_historical(ticker, price)
 
-async def price_consumer():                         # 실시간 가격 큐 소비
+        # 비트코인 시가 보완
+        if ticker == "KRW-BTC":
+            btc_tracker["open"] = df['open'].iloc[-1]
+
+async def price_consumer():
     while True:
         ticker, price = await price_queue.get()
         check_conditions_realtime(ticker, price)
 
-async def daily_summary_loop():  # ⏱️ 3시간마다 요약 메시지 전송
+async def daily_summary_loop():
     while True:
         await analyze_historical_conditions()
         send_past_summary()
         await asyncio.sleep(60 * 60 * 3)  # 3시간 대기
 
-async def main():                  # 전체 루프 병렬 실행
-    send_message("📢 알림 시스템이 시작 💰")  # 시작 메시지 전송
+async def main():
+    send_message("📢 알림 시스템 시작 💰")  # 시작 메시지 전송
     await asyncio.gather(
         run_ws(),              # 웹소켓 실시간 가격 수신
         price_consumer(),      # 가격 큐 소비 및 조건 검사
@@ -224,4 +226,4 @@ async def main():                  # 전체 루프 병렬 실행
     )
 
 if __name__ == "__main__":
-    asyncio.run(main())        # 프로그램 시작
+    asyncio.run(main())
