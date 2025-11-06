@@ -19,7 +19,7 @@ MAX_CACHE_SIZE = 300
 TTL_SECONDS = 10800  # 3시간
 
 # ──────────────── 가격 포맷 ────────────────
-def format_price_upbit(price):
+def format_price(price):
     if price >= 2_000_000:
         return f"{price:,.0f}"
     elif price >= 1_000_000:
@@ -246,6 +246,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
