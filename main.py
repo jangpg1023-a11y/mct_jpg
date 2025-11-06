@@ -19,17 +19,32 @@ MAX_CACHE_SIZE = 300
 TTL_SECONDS = 10800  # 3시간
 
 # ──────────────── 가격 포맷 ────────────────
-def format_price(price):
-    if price >= 100_000:
+def format_price_upbit(price):
+    if price >= 2_000_000:
+        return f"{price:,.0f}"
+    elif price >= 1_000_000:
+        return f"{price:,.0f}"
+    elif price >= 500_000:
+        return f"{price:,.0f}"
+    elif price >= 100_000:
         return f"{price:,.0f}"
     elif price >= 10_000:
-        return f"{price:,.1f}"
+        return f"{price:,.0f}"
     elif price >= 1_000:
-        return f"{price:,.2f}"
+        return f"{price:,.0f}"
+    elif price >= 100:
+        return f"{price:,.0f}"
     elif price >= 10:
+        return f"{price:,.1f}"
+    elif price >= 1:
+        return f"{price:,.2f}"
+    elif price >= 0.1:
         return f"{price:,.3f}"
-    else:
+    elif price >= 0.01:
         return f"{price:,.4f}"
+    else:
+        return f"{price:,.5f}"
+
 
 # ──────────────── 전체 KRW 종목 불러오기 ────────────────
 def get_all_krw_tickers():
@@ -174,20 +189,43 @@ async def analyze_past_conditions():
 
 # ──────────────── 요약 메시지 전송 ────────────────
 def send_past_summary():
+    emoji_map = {"BBD": "📉", "MA": "➖", "BBU": "📈"}
+    day_labels = {
+        0: "🕓 D-0 ━━",
+        1: "📅 D-1 ━━",
+        2: "🗓️ D-2 ━━"
+    }
+
     msg = f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
+
     for i in [0, 1, 2]:
         entries = summary_log[i]
-        unique_entries = list(dict.fromkeys(entries))
-        msg += f"D-{i}\n"
-        if unique_entries:
-            for entry in unique_entries:
-                parts = entry.split(" | ")
-                if len(parts) == 3:
-                    symbol, condition, change = parts
-                    msg += f"   {symbol}  {condition}  {change}\n"
+        msg += f"{day_labels[i]}\n"
+
+        grouped = {"BBD": {}, "MA": {}, "BBU": {}}
+        for entry in entries:
+            parts = entry.split(" | ")
+            if len(parts) == 3:
+                symbol, condition, change = parts
+                symbol = symbol.replace("KRW-", "")
+                grouped[condition][symbol] = change  # 최신값으로 덮어쓰기
+
+        has_data = False
+        for condition in ["BBD", "MA", "BBU"]:
+            if grouped[condition]:
+                has_data = True
+                line = f"     {emoji_map[condition]} {condition}: " + ", ".join(
+                    f"{s} {grouped[condition][s]}" for s in grouped[condition]
+                )
+                msg += line + "\n"
+
+        if not has_data:
+            msg += ""
+
         msg += "\n"
+
     send_message(msg.strip())
-    cleanup_alert_cache()  # 오래된 알림 캐시 정리
+    cleanup_alert_cache()
 
 # ──────────────── 요약 루프 (3시간마다) ────────────────
 async def daily_summary_loop():
@@ -211,3 +249,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
