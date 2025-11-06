@@ -189,20 +189,40 @@ async def analyze_past_conditions():
 
 # ──────────────── 요약 메시지 전송 ────────────────
 def send_past_summary():
+    emoji_map = {"BBD": "📉", "MA": "➖", "BBU": "📈"}
+    day_labels = {
+        0: "🔥 D-0 ━━",
+        1: "⏳ D-1 ━━",
+        2: "⌛ D-2 ━━"
+    }
+
     msg = f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
+
     for i in [0, 1, 2]:
-        entries = summary_log[i]
-        unique_entries = list(dict.fromkeys(entries))
-        msg += f"D-{i}\n"
-        if unique_entries:
-            for entry in unique_entries:
-                parts = entry.split(" | ")
-                if len(parts) == 3:
-                    symbol, condition, change = parts
-                    msg += f"   {symbol}  {condition}  {change}\n"
+        entries = summary_log.get(i, [])
+        msg += f"{day_labels[i]}\n"
+
+        grouped = {"BBD": {}, "MA": {}, "BBU": {}}
+        for entry in entries:
+            parts = entry.split(" | ")
+            if len(parts) == 3:
+                symbol, condition, change = parts
+                symbol = symbol.replace("KRW-", "")
+                if condition in grouped:
+                    grouped[condition][symbol] = change
+
+        for condition in ["BBD", "MA", "BBU"]:
+            symbols = grouped[condition]
+            if symbols:
+                line = f"      {emoji_map[condition]} {condition}:\n" + "\n".join(
+                    f"        {s} {symbols[s]}" for s in symbols
+                )
+                msg += line + "\n"
+
         msg += "\n"
+
     send_message(msg.strip())
-    cleanup_alert_cache()  # 오래된 알림 캐시 정리
+    cleanup_alert_cache()
 
 # ──────────────── 요약 루프 (3시간마다) ────────────────
 async def daily_summary_loop():
@@ -226,6 +246,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
