@@ -215,7 +215,7 @@ def send_past_summary():
             symbols = grouped[condition]
             if symbols:
                 line = f"      {emoji_map[condition]} {condition}:\n" + "\n".join(
-                    f"        {s} {symbols[s]}" for s in symbols
+                       f"             {s} {symbols[s]}" for s in symbols
                 )
                 msg += line + "\n"
 
@@ -246,6 +246,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
