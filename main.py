@@ -58,12 +58,12 @@ def get_ohlcv_cached(ticker):
     now = time.time()
 
     # 오래된 캐시 제거 (5분 이상된 항목 삭제)
-    expired_keys = [key for key, val in ohlcv_cache.items() if now - val['time'] > 5]
+    expired_keys = [key for key, val in ohlcv_cache.items() if now - val['time'] > 300]
     for key in expired_keys:
         del ohlcv_cache[key]
 
     # 캐시가 유효하면 반환
-    if ticker in ohlcv_cache and now - ohlcv_cache[ticker]['time'] < 60:
+    if ticker in ohlcv_cache and now - ohlcv_cache[ticker]['time'] < 10800:
         return ohlcv_cache[ticker]['df'], ohlcv_cache[ticker]['weekly']
 
     # 새로 받아와서 캐시에 저장
@@ -145,7 +145,7 @@ async def process_queue():
         if not price_queue.empty():
             ticker, price = await price_queue.get()
             check_conditions(ticker, price, day_indexes=[0])
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(2)
 
 # ──────────────── 과거 조건 분석 ────────────────
 async def analyze_past_conditions():
@@ -170,9 +170,19 @@ def send_past_summary():
                     symbol, condition, change = parts
                     msg += f"   {symbol}  {condition}  {change}\n"
         else:
-            msg += "   (조건 충족 없음)\n"
+            msg += ""
         msg += "\n"
     send_message(msg.strip())
+
+    ohlcv_cache.clear()
+    alert_cache.clear()
+    time.sleep(1)
+
+    ohlcv_cache.clear()
+    alert_cache.clear()
+    time.sleep(1)
+
+
 
 # ──────────────── 요약 루프 (3시간마다) ────────────────
 async def daily_summary_loop():
@@ -196,3 +206,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
