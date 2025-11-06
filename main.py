@@ -175,11 +175,9 @@ def send_past_summary():
     send_message(msg.strip())
 
     ohlcv_cache.clear()
-    alert_cache.clear()
     time.sleep(1)
 
     ohlcv_cache.clear()
-    alert_cache.clear()
     time.sleep(1)
 
 
@@ -206,4 +204,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
