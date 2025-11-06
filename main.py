@@ -1,5 +1,6 @@
 import asyncio, websockets, json, pyupbit, requests, os, time
 from datetime import datetime, timezone
+from collections import OrderedDict
 from keep_alive import keep_alive
 
 # ──────────────── 기본 설정 ────────────────
@@ -10,9 +11,12 @@ TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
 price_queue = asyncio.Queue()
 alert_cache = {}
-ohlcv_cache = {}
+ohlcv_cache = OrderedDict()
 summary_log = {0: [], 1: [], 2: []}
 watchlist = []
+
+MAX_CACHE_SIZE = 300
+TTL_SECONDS = 10800  # 3시간
 
 # ──────────────── 가격 포맷 ────────────────
 def format_price(price):
@@ -53,28 +57,34 @@ async def run_ws(watchlist):
             print(f"[웹소켓 오류] {e}")
             await asyncio.sleep(5)
 
-# ──────────────── OHLCV 캐시 ────────────────
+# ──────────────── OHLCV 캐시 저장 ────────────────
+def set_ohlcv_cache(ticker, df, weekly):
+    now = time.time()
+
+    expired_keys = [k for k, v in ohlcv_cache.items() if now - v['time'] > TTL_SECONDS]
+    for k in expired_keys:
+        del ohlcv_cache[k]
+
+    while len(ohlcv_cache) >= MAX_CACHE_SIZE:
+        ohlcv_cache.popitem(last=False)
+
+    ohlcv_cache[ticker] = {
+        'df': df,
+        'weekly': weekly,
+        'time': now
+    }
+
+# ──────────────── OHLCV 캐시 조회 ────────────────
 def get_ohlcv_cached(ticker):
     now = time.time()
 
-    # 오래된 캐시 제거 (5분 이상된 항목 삭제)
-    expired_keys = [key for key, val in ohlcv_cache.items() if now - val['time'] > 300]
-    for key in expired_keys:
-        del ohlcv_cache[key]
-
-    # 캐시가 유효하면 반환
-    if ticker in ohlcv_cache and now - ohlcv_cache[ticker]['time'] < 10800:
+    if ticker in ohlcv_cache and now - ohlcv_cache[ticker]['time'] < TTL_SECONDS:
         return ohlcv_cache[ticker]['df'], ohlcv_cache[ticker]['weekly']
 
-    # 새로 받아와서 캐시에 저장
     try:
         df = pyupbit.get_ohlcv(ticker, interval="day", count=130)
         weekly = pyupbit.get_ohlcv(ticker, interval="week", count=3)
-        ohlcv_cache[ticker] = {
-            'df': df,
-            'weekly': weekly,
-            'time': now
-        }
+        set_ohlcv_cache(ticker, df, weekly)
         return df, weekly
     except:
         return None, None
@@ -89,13 +99,19 @@ def calculate_indicators(df):
     df['BBD'] = df['MA120'] - 2 * df['STD120']
     return df
 
-# ──────────────── 알림 중복 방지 (30분) ────────────────
-def should_alert(key, cooldown=1800):
+# ──────────────── 알림 중복 방지 ────────────────
+def should_alert(key, cooldown=10800):
     last_time = alert_cache.get(key)
     if last_time and time.time() - last_time < cooldown:
         return False
     alert_cache[key] = time.time()
     return True
+
+def cleanup_alert_cache():
+    now = time.time()
+    expired_keys = [k for k, t in alert_cache.items() if now - t > 10800]
+    for k in expired_keys:
+        del alert_cache[k]
 
 # ──────────────── 요약 기록 ────────────────
 def record_summary(day_index, ticker, condition_text, change_str):
@@ -126,23 +142,23 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
         if is_weekly_bullish and pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
             if i == 0 and should_alert(key + "bbd_ma7"):
-                send_message(f"📉 BBD + MA7 돌파 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
+                send_message(f"📉 BBD + MA7 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
             record_summary(i, ticker, "BBD", change_str)
 
         if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
             if i == 0 and should_alert(key + "ma120_ma7"):
-                send_message(f"➖ MA120 + MA7 돌파 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
+                send_message(f"➖ MA120 + MA7 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
             record_summary(i, ticker, "MA", change_str)
 
         if pc < bbup and cc > bbuc:
             if i == 0 and should_alert(key + "bollinger_upper"):
-                send_message(f"📈 BBU 상단 돌파 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
+                send_message(f"📈 BBU 상단 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
             record_summary(i, ticker, "BBU", change_str)
 
 # ──────────────── 실시간 가격 처리 ────────────────
 async def process_queue():
     while True:
-        if not price_queue.empty():
+        while not price_queue.empty():
             ticker, price = await price_queue.get()
             check_conditions(ticker, price, day_indexes=[0])
         await asyncio.sleep(2)
@@ -169,25 +185,16 @@ def send_past_summary():
                 if len(parts) == 3:
                     symbol, condition, change = parts
                     msg += f"   {symbol}  {condition}  {change}\n"
-        else:
-            msg += ""
         msg += "\n"
     send_message(msg.strip())
-
-    ohlcv_cache.clear()
-    time.sleep(1)
-
-    ohlcv_cache.clear()
-    time.sleep(1)
-
-
+    cleanup_alert_cache()  # 오래된 알림 캐시 정리
 
 # ──────────────── 요약 루프 (3시간마다) ────────────────
 async def daily_summary_loop():
     while True:
-        await analyze_past_conditions()           # 초기 D-1, D-2 분석
+        await analyze_past_conditions()
         send_past_summary()
-        await asyncio.sleep(60 * 60 * 3)          # 3시간마다 D-1, D-2 분석
+        await asyncio.sleep(60 * 60 * 3)
 
 # ──────────────── 메인 루프 ────────────────
 async def main():
@@ -204,5 +211,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
