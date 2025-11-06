@@ -199,7 +199,7 @@ def send_past_summary():
     msg = f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
 
     for i in [0, 1, 2]:
-        entries = summary_log[i]
+        entries = summary_log.get(i, [])
         msg += f"{day_labels[i]}\n"
 
         grouped = {"BBD": {}, "MA": {}, "BBU": {}}
@@ -208,19 +208,16 @@ def send_past_summary():
             if len(parts) == 3:
                 symbol, condition, change = parts
                 symbol = symbol.replace("KRW-", "")
-                grouped[condition][symbol] = change  # 최신값으로 덮어쓰기
+                if condition in grouped:
+                    grouped[condition][symbol] = change
 
-        has_data = False
         for condition in ["BBD", "MA", "BBU"]:
-            if grouped[condition]:
-                has_data = True
-                line = f"     {emoji_map[condition]} {condition}: " + ", ".join(
-                    f"{s} {grouped[condition][s]}" for s in grouped[condition]
+            symbols = grouped[condition]
+            if symbols:
+                line = f"     {emoji_map[condition]} {condition}:\n" + "\n".join(
+                    f"      {s} {symbols[s]}" for s in symbols
                 )
                 msg += line + "\n"
-
-        if not has_data:
-            msg += ""
 
         msg += "\n"
 
@@ -249,4 +246,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
