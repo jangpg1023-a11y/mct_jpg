@@ -52,16 +52,21 @@ def get_btc_summary_block():
     # BYBIT
     url = "https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT"
     res = requests.get(url).json()
-    bybit_usd_float = float(res['result']['list'][0]['lastPrice'])
+    bybit_data = res['result']['list'][0]
+
+    bybit_usd_float = float(bybit_data['lastPrice'])
     bybit_usd = int(bybit_usd_float)
     bybit_price = int(bybit_usd_float * usdkrw_today)
-    bybit_today_rate = round(float(res['result']['list'][0]['price24hPcnt']) * 100, 2)
-    bybit_yesterday_rate = -0.85
+    bybit_today_rate = round(float(bybit_data['price24hPcnt']) * 100, 2)
 
-    # 1시간 단위 등락률 + 4시간 블록
-    df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=9)
+    mark_price = float(bybit_data['markPrice'])
+    prev_price = mark_price / (1 + float(bybit_data['price24hPcnt']))
+    bybit_yesterday_rate = round((mark_price - prev_price) / prev_price * 100, 2)
+
+    # 1시간 단위 등락률 + 4시간 블록 (총 4줄: 최근 16시간)
+    df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=17)
     changes = []
-    for i in range(1, 9):
+    for i in range(1, 17):
         open_price = df_hour.iloc[i - 1]['close']
         close_price = df_hour.iloc[i]['close']
         rate = round((close_price - open_price) / open_price * 100, 2)
@@ -71,11 +76,16 @@ def get_btc_summary_block():
     lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
     lines.append(f"UP {upbit_price / 1e8:.2f}억 +{upbit_today_rate:.2f}% (+{upbit_yesterday_rate:.2f}%) ${upbit_usd:,}")
     lines.append(f"BY {bybit_price / 1e8:.2f}억 +{bybit_today_rate:.2f}% (+{bybit_yesterday_rate:.2f}%) ${bybit_usd:,}")
-    lines.append("4H rate(1H rate)")
-    for i in range(0, len(changes) - 3, 4):
+    lines.append(" 4H rate(1H rate)")
+
+    # 시간대 라벨 붙이기 (16~13H, 12~9H, 8~5H, 4~1H)
+    for i in range(0, len(changes), 4):
         block = changes[i:i+4]
         block_total = round(sum(block), 2)
-        block_line = f" {block_total:+.2f}% ({'  '.join([f'{r:+.2f}%' for r in block])})"
+        hour_start = 16 - i
+        hour_end = hour_start - 3
+        label = f" [{hour_start}H]"
+        block_line = f"{label} {block_total:+.2f}% ({'  '.join([f'{r:+.2f}%' for r in block])})"
         lines.append(block_line)
 
     return "\n".join(lines)
@@ -154,7 +164,7 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
 def send_past_summary():
     emoji_map = {"BBD": "📉", "MA": "➖", "BBU": "📈"}
-    day_labels = {0: "🔥 D-0 ━━", 1: "⏳ D+1 ━━", 2: "⌛ D+2 ━━"}
+    day_labels = {0: "🔥 D-day ━━", 1: "⏳ D+1 ━━", 2: "⌛ D+2 ━━"}
     msg = get_btc_summary_block() + "\n\n"
     msg += f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
 
@@ -162,6 +172,7 @@ def send_past_summary():
         entries = summary_log.get(i, [])
         msg += f"{day_labels[i]}\n"
         grouped = {"BBD": {}, "MA": {}, "BBU": {}}
+
         for entry in entries:
             parts = entry.split(" | ")
             if len(parts) == 4:
@@ -169,21 +180,23 @@ def send_past_summary():
                 symbol = symbol.replace("KRW-", "")
                 if condition in grouped:
                     grouped[condition][symbol] = (change, yest)
+
         for condition in ["BBD", "MA", "BBU"]:
             symbols = grouped[condition]
             if symbols:
                 max_len = max(len(s) for s in symbols)
                 sorted_items = sorted(
                     symbols.items(),
-                    key=lambda x: float(x[1][0].replace('%', '').replace('+', '').replace('-', '')),
+                    key=lambda x: float(x[1][0].replace('%', '').replace('+', '')),
                     reverse=True
                 )
-                line = f"      {emoji_map[condition]} {condition}:\n"
+                msg += f"      {emoji_map[condition]} {condition}:\n"
                 for s, (change, yest) in sorted_items:
-                    symbol_part = s.ljust(max_len)
+                    space_padding = ' ' * (max_len - len(s))
+                    symbol_part = s + space_padding
                     change_part = change.rjust(8)
-                    line += f"            {symbol_part}  {change_part} ({yest})\n"
-                msg += line
+                    yest_part = f"({yest})".rjust(10)
+                    msg += f"            {symbol_part}  {change_part} {yest_part}\n"
         msg += "\n"
 
     send_message(msg.strip())
