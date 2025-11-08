@@ -77,11 +77,11 @@ def get_btc_summary_block():
     recent_rate = round((recent_close - recent_open) / recent_open * 100, 2)
 
     return (
-        f"₿ BTC 정보  💱 ₩{usdkrw_today:.1f}/USD (₩{usdkrw_yesterday:.1f}) | "
-        f"UPBIT ₩{upbit_price:,} (${upbit_usd:,}) {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%) | "
-        f"BYBIT ₩{bybit_price:,} (${bybit_usd:,}) {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%) | "
-        f"이전 4시간 등락률: {prev_rate:+.2f}% ({'  '.join(changes[:4])}) | "
-        f"최근 4시간 등락률: {recent_rate:+.2f}% ({'  '.join(changes[4:])})"
+        f"₿ BTC 정보  💱 ₩{usdkrw_today:.1f}/USD (₩{usdkrw_yesterday:.1f})\n"
+        f"UPBIT ₩{upbit_price:,} (${upbit_usd:,}) {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)\n"
+        f"BYBIT ₩{bybit_price:,} (${bybit_usd:,}) {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)\n"
+        f"이전4: {prev_rate:+.2f}% ({'  '.join(changes[:4])})\n"
+        f"4시간: {recent_rate:+.2f}% ({'  '.join(changes[4:])})"
     )
 
 def get_all_krw_tickers():
@@ -185,11 +185,16 @@ def send_past_summary():
             symbols = grouped[condition]
             if symbols:
                 max_len = max(len(s) for s in symbols)
-                sorted_items = sorted(symbols.items(), key=lambda x: float(x[1][0].replace('%','')), reverse=True)
+                sorted_items = sorted(
+                    symbols.items(),
+                    key=lambda x: float(x[1][0].replace('%', '').replace('+', '')),
+                    reverse=True
+                )
                 line = f"      {emoji_map[condition]} {condition}:\n"
                 for s, (change, yest) in sorted_items:
-                    line += f"            {s.ljust(max_len)}  {change} ({yest})\n"
+                    line += f"            {s.ljust(max_len)}  {change.rjust(7)} ({yest})\n"
                 msg += line
+
         msg += "\n"
 
     send_message(msg.strip())
@@ -232,3 +237,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
