@@ -37,29 +37,37 @@ def get_usdkrw():
         print("❌ 환율 오류:", e)
         return 1350.0, 1350.0
 
-def get_bybit_yesterday_rate():
+def get_bybit_day_rates():
     try:
-        utc_yesterday = datetime.utcnow().date() - timedelta(days=1)
-        target_date = utc_yesterday.strftime("%Y-%m-%d")
-        url = "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=5"
+        today_date = datetime.utcnow().date().strftime("%Y-%m-%d")
+        yesterday_date = (datetime.utcnow().date() - timedelta(days=1)).strftime("%Y-%m-%d")
+        url = "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=10"
         res = requests.get(url)
         data = res.json()
         ohlcv = data.get('result', {}).get('list', [])
+        today_rate = 0.0
+        yesterday_rate = 0.0
         for candle in ohlcv:
             ts = int(candle[0]) // 1000
             candle_date = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
-            if candle_date == target_date:
+            if candle_date == today_date:
+                open_t = float(candle[1])
+                close_t = float(candle[4])
+                today_rate = round((close_t - open_t) / open_t * 100, 2)
+            elif candle_date == yesterday_date:
                 open_y = float(candle[1])
                 close_y = float(candle[4])
-                rate = (close_y - open_y) / open_y * 100
-                return round(rate, 2)
+                yesterday_rate = round((close_y - open_y) / open_y * 100, 2)
+        return today_rate, yesterday_rate
     except Exception as e:
-        print("❌ BYBIT 전일 변동률 오류:", e)
-    return 0.0
+        print("❌ BYBIT 일별 변동률 오류:", e)
+        return 0.0, 0.0
 
 def get_btc_summary_block():
     try:
         usdkrw_today, usdkrw_yesterday = get_usdkrw()
+
+        # UPBIT 일봉
         df = pyupbit.get_ohlcv("KRW-BTC", interval="day", count=2)
         if df is None or len(df) < 2:
             raise ValueError("UPBIT 일봉 데이터 부족")
@@ -72,18 +80,10 @@ def get_btc_summary_block():
         upbit_today_rate = round((today_close - today_open) / today_open * 100, 2)
         upbit_yesterday_rate = round((yesterday_close - yesterday_open) / yesterday_open * 100, 2)
 
-        url = "https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT"
-        res = requests.get(url).json()
-        bybit_list = res.get('result', {}).get('list', [])
-        if not bybit_list:
-            raise ValueError("BYBIT 데이터 없음")
-        bybit_data = bybit_list[0]
-        bybit_usd_float = float(bybit_data['lastPrice'])
-        bybit_usd = int(bybit_usd_float)
-        bybit_price = int(bybit_usd_float * usdkrw_today)
-        bybit_today_rate = round(float(bybit_data['price24hPcnt']) * 100, 2)
-        bybit_yesterday_rate = get_bybit_yesterday_rate()
+        # BYBIT 변동률 (오늘/어제)
+        bybit_today_rate, bybit_yesterday_rate = get_bybit_day_rates()
 
+        # UPBIT 시간봉 (1시간 간격)
         df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=17)
         if df_hour is None or len(df_hour) < 17:
             raise ValueError("UPBIT 시간봉 데이터 부족")
@@ -94,10 +94,11 @@ def get_btc_summary_block():
             rate = round((close_price - open_price) / open_price * 100, 2)
             changes.append(rate)
 
+        # 출력
         lines = []
         lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
-        lines.append(f"UPBIT  {upbit_price / 1e8:.2f}억  {upbit_today_rate:.2f}% ({upbit_yesterday_rate:.2f}%)  ${upbit_usd:,}")
-        lines.append(f"BYBIT  {bybit_price / 1e8:.2f}억  {bybit_today_rate:.2f}% ({bybit_yesterday_rate:.2f}%)  ${bybit_usd:,}")
+        lines.append(f"UPBIT  {upbit_price / 1e8:.2f}억  {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)  ${upbit_usd:,}")
+        lines.append(f"BYBIT  변동률  {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)")
         lines.append("4H rate (1H rate)")
         for i in range(0, len(changes), 4):
             block = changes[i:i+4]
@@ -189,19 +190,27 @@ def get_updown_ratio_by_day(day_offset):
 
     for ticker in tickers:
         try:
-            df = get_ohlcv_cached(ticker)
+            # 실시간 분석: 오늘(D-day)
+            if day_offset == 0:
+                df = pyupbit.get_ohlcv(ticker, interval="day", count=2)
+            else:
+                df = get_ohlcv_cached(ticker)
+
             if df is None or len(df) < day_offset + 2:
                 continue
+
             row = df.iloc[-(day_offset + 1)]
             open_price = row['open']
             close_price = row['close']
             if open_price == 0:
                 continue
+
             rate = (close_price - open_price) / open_price * 100
             if rate > 0:
                 up_count += 1
             elif rate < 0:
                 down_count += 1
+
         except Exception as e:
             print(f"❌ {ticker} 오류: {e}")
             continue
@@ -300,5 +309,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
