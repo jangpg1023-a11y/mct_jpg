@@ -1,5 +1,5 @@
 import asyncio, pyupbit, requests, os, time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from collections import OrderedDict
 from bs4 import BeautifulSoup
 from keep_alive import keep_alive
@@ -11,110 +11,104 @@ TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
 ohlcv_cache = OrderedDict()
 summary_log = {0: [], 1: [], 2: []}
-watchlist = []
 MAX_CACHE_SIZE = 300
 TTL_SECONDS = 10800  # 3시간
 
-def format_price(price):
-    if price >= 10: return f"{price:,.0f}"
-    elif price >= 1: return f"{price:,.2f}"
-    elif price >= 0.1: return f"{price:,.3f}"
-    elif price >= 0.01: return f"{price:,.4f}"
-    else: return f"{price:,.5f}"
-
 def send_message(text):
     try:
-        requests.post(TELEGRAM_URL, data={'chat_id': CHAT_ID, 'text': text})
+        res = requests.post(TELEGRAM_URL, data={'chat_id': CHAT_ID, 'text': text})
+        print("텔레그램 응답:", res.status_code, res.text)
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
 def get_usdkrw():
-    url = "https://finance.naver.com/marketindex/"
-    res = requests.get(url)
-    soup = BeautifulSoup(res.text, "html.parser")
+    try:
+        url = "https://finance.naver.com/marketindex/"
+        res = requests.get(url)
+        soup = BeautifulSoup(res.text, "html.parser")
+        today_price = soup.select_one("div.head_info > span.value").text
+        today = float(today_price.replace(",", ""))
+        diff_text = soup.select_one("div.head_info > span.change").text
+        diff = float(diff_text.replace(",", "").replace("+", "").replace("-", ""))
+        direction = soup.select_one("div.head_info > span.blind").text
+        yesterday = today + diff if "하락" in direction else today - diff
+        return today, yesterday
+    except Exception as e:
+        print("❌ 환율 오류:", e)
+        return 1350.0, 1350.0
 
-    today_price = soup.select_one("div.head_info > span.value").text
-    today = float(today_price.replace(",", ""))
-
-    diff_text = soup.select_one("div.head_info > span.change").text
-    diff = float(diff_text.replace(",", "").replace("+", "").replace("-", ""))
-    direction = soup.select_one("div.head_info > span.blind").text
-
-    yesterday = today + diff if "하락" in direction else today - diff
-    return today, yesterday
-    
 def get_bybit_yesterday_rate():
-    # UTC 기준 어제 날짜
-    utc_yesterday = datetime.utcnow().date() - timedelta(days=1)
-    target_date = utc_yesterday.strftime("%Y-%m-%d")
-
-    # 최근 5일치 일봉 조회
-    url = "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=5"
-    res = requests.get(url)
-    data = res.json()
-    ohlcv = data.get('result', {}).get('list', [])
-
-    # 날짜 필터링
-    for candle in ohlcv:
-        ts = int(candle[0]) // 1000
-        candle_date = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
-        if candle_date == target_date:
-            open_y = float(candle[1])
-            close_y = float(candle[4])
-            rate = (close_y - open_y) / open_y * 100
-            return round(rate, 2)
-
-    return None
+    try:
+        utc_yesterday = datetime.utcnow().date() - timedelta(days=1)
+        target_date = utc_yesterday.strftime("%Y-%m-%d")
+        url = "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=5"
+        res = requests.get(url)
+        data = res.json()
+        ohlcv = data.get('result', {}).get('list', [])
+        for candle in ohlcv:
+            ts = int(candle[0]) // 1000
+            candle_date = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+            if candle_date == target_date:
+                open_y = float(candle[1])
+                close_y = float(candle[4])
+                rate = (close_y - open_y) / open_y * 100
+                return round(rate, 2)
+    except Exception as e:
+        print("❌ BYBIT 전일 변동률 오류:", e)
+    return 0.0
 
 def get_btc_summary_block():
-    usdkrw_today, usdkrw_yesterday = get_usdkrw()
+    try:
+        usdkrw_today, usdkrw_yesterday = get_usdkrw()
+        df = pyupbit.get_ohlcv("KRW-BTC", interval="day", count=2)
+        if df is None or len(df) < 2:
+            raise ValueError("UPBIT 일봉 데이터 부족")
+        today_open = df.iloc[-1]['open']
+        today_close = df.iloc[-1]['close']
+        yesterday_open = df.iloc[-2]['open']
+        yesterday_close = df.iloc[-2]['close']
+        upbit_price = int(today_close)
+        upbit_usd = int(upbit_price / usdkrw_today)
+        upbit_today_rate = round((today_close - today_open) / today_open * 100, 2)
+        upbit_yesterday_rate = round((yesterday_close - yesterday_open) / yesterday_open * 100, 2)
 
-    # 📈 UPBIT
-    df = pyupbit.get_ohlcv("KRW-BTC", interval="day", count=2)
-    today_open = df.iloc[-1]['open']
-    today_close = df.iloc[-1]['close']
-    yesterday_open = df.iloc[-2]['open']
-    yesterday_close = df.iloc[-2]['close']
+        url = "https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT"
+        res = requests.get(url).json()
+        bybit_list = res.get('result', {}).get('list', [])
+        if not bybit_list:
+            raise ValueError("BYBIT 데이터 없음")
+        bybit_data = bybit_list[0]
+        bybit_usd_float = float(bybit_data['lastPrice'])
+        bybit_usd = int(bybit_usd_float)
+        bybit_price = int(bybit_usd_float * usdkrw_today)
+        bybit_today_rate = round(float(bybit_data['price24hPcnt']) * 100, 2)
+        bybit_yesterday_rate = get_bybit_yesterday_rate()
 
-    upbit_price = int(today_close)
-    upbit_usd = int(upbit_price / usdkrw_today)
-    upbit_today_rate = round((today_close - today_open) / today_open * 100, 2)
-    upbit_yesterday_rate = round((yesterday_close - yesterday_open) / yesterday_open * 100, 2)
+        df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=17)
+        if df_hour is None or len(df_hour) < 17:
+            raise ValueError("UPBIT 시간봉 데이터 부족")
+        changes = []
+        for i in range(1, 17):
+            open_price = df_hour.iloc[i - 1]['close']
+            close_price = df_hour.iloc[i]['close']
+            rate = round((close_price - open_price) / open_price * 100, 2)
+            changes.append(rate)
 
-    # 📉 BYBIT
-    url = "https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT"
-    res = requests.get(url).json()
-    bybit_data = res['result']['list'][0]
+        lines = []
+        lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
+        lines.append(f"UPBIT  {upbit_price / 1e8:.2f}억  {upbit_today_rate:.2f}% ({upbit_yesterday_rate:.2f}%)  ${upbit_usd:,}")
+        lines.append(f"BYBIT  {bybit_price / 1e8:.2f}억  {bybit_today_rate:.2f}% ({bybit_yesterday_rate:.2f}%)  ${bybit_usd:,}")
+        lines.append("4H rate (1H rate)")
+        for i in range(0, len(changes), 4):
+            block = changes[i:i+4]
+            block_total = round(sum(block), 2)
+            block_line = f"{block_total:+.2f}% ・{'  '.join([f'{r:+.2f}%' for r in block])}"
+            lines.append(block_line)
 
-    bybit_usd_float = float(bybit_data['lastPrice'])
-    bybit_usd = int(bybit_usd_float)
-    bybit_price = int(bybit_usd_float * usdkrw_today)
-    bybit_today_rate = round(float(bybit_data['price24hPcnt']) * 100, 2)
-    bybit_yesterday_rate = get_bybit_yesterday_rate()
-
-    # ⏱️ 1시간 단위 변화율
-    df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=17)
-    changes = []
-    for i in range(1, 17):
-        open_price = df_hour.iloc[i - 1]['close']
-        close_price = df_hour.iloc[i]['close']
-        rate = round((close_price - open_price) / open_price * 100, 2)
-        changes.append(rate)
-
-    # 🧾 메시지 구성
-    lines = []
-    lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
-    lines.append(f"UPBIT  {upbit_price / 1e8:.2f}억  {upbit_today_rate:.2f}% ({upbit_yesterday_rate:.2f}%)  ${upbit_usd:,}")
-    lines.append(f"BYBIT  {bybit_price / 1e8:.2f}억  {bybit_today_rate:.2f}% ({bybit_yesterday_rate:.2f}%)  ${bybit_usd:,}")
-    lines.append("4H rate (1H rate)")
-
-    for i in range(0, len(changes), 4):
-        block = changes[i:i+4]
-        block_total = round(sum(block), 2)
-        block_line = f"{block_total:+.2f}% ・{'  '.join([f'{r:+.2f}%' for r in block])}"
-        lines.append(block_line)
-
-    return "\n".join(lines)
+        return "\n".join(lines)
+    except Exception as e:
+        print("❌ BTC 요약 블록 오류:", e)
+        return "❌ BTC 요약 블록 생성 실패"
 
 def get_all_krw_tickers():
     return pyupbit.get_tickers(fiat="KRW")
@@ -188,13 +182,43 @@ def check_conditions(ticker, price, day_indexes=[0]):
         if pc < bbup and cc > bbuc:
             record_summary(i, ticker, "BBU", change_str, yesterday_rate)
 
+def get_updown_ratio_by_day(day_offset):
+    tickers = get_all_krw_tickers()
+    up_count = 0
+    down_count = 0
+
+    for ticker in tickers:
+        try:
+            df = get_ohlcv_cached(ticker)
+            if df is None or len(df) < day_offset + 2:
+                continue
+            row = df.iloc[-(day_offset + 1)]
+            open_price = row['open']
+            close_price = row['close']
+            if open_price == 0:
+                continue
+            rate = (close_price - open_price) / open_price * 100
+            if rate > 0:
+                up_count += 1
+            elif rate < 0:
+                down_count += 1
+        except Exception as e:
+            print(f"❌ {ticker} 오류: {e}")
+            continue
+
+    total = up_count + down_count
+    if total > 0:
+        up_ratio = round(up_count / total * 100, 1)
+        return f"{up_ratio}% ({up_count} / {down_count})"
+    else:
+        return ""
+
 def send_past_summary():
     emoji_map = {"BBD": "📉", "MA": "➖", "BBU": "📈"}
     day_labels = {0: "🔥 D-day ━━", 1: "⏳ D+1 ━━", 2: "⌛ D+2 ━━"}
     msg = get_btc_summary_block() + "\n\n"
     msg += f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
 
-    # 종목 등장 횟수 계산
     symbol_counts = {}
     for i in [0, 1, 2]:
         for entry in summary_log.get(i, []):
@@ -205,31 +229,9 @@ def send_past_summary():
 
     for i in [0, 1, 2]:
         entries = summary_log.get(i, [])
+        ratio_text = get_updown_ratio_by_day(i)
+        msg += f"{day_labels[i]} {ratio_text}\n"
 
-        # 상승/하락 종목 수 및 비율 계산 (감지된 종목 기준)
-        up_count = 0
-        down_count = 0
-        for entry in entries:
-            parts = entry.split(" | ")
-            if len(parts) == 4:
-                _, _, change, _ = parts
-                try:
-                    rate = float(change.replace('%', '').replace('+', ''))
-                    if rate > 0:
-                        up_count += 1
-                    elif rate < 0:
-                        down_count += 1
-                except:
-                    continue
-
-        total = up_count + down_count
-        if total > 0:
-            up_ratio = round(up_count / total * 100, 1)
-            msg += f"{day_labels[i]} {up_ratio}% ({up_count} / {down_count})\n"
-        else:
-            msg += f"{day_labels[i]} 상승/하락 종목 없음\n"
-
-        # 조건별 그룹화
         grouped = {"BBD": {}, "MA": {}, "BBU": {}}
         for entry in entries:
             parts = entry.split(" | ")
@@ -239,7 +241,6 @@ def send_past_summary():
                 if condition in grouped:
                     grouped[condition][symbol] = (change, yest)
 
-        # 조건별 출력
         for condition in ["BBD", "MA", "BBU"]:
             symbols = grouped[condition]
             if symbols:
@@ -299,20 +300,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
