@@ -63,7 +63,6 @@ def get_btc_summary_block():
     prev_price = mark_price / (1 + float(bybit_data['price24hPcnt']))
     bybit_yesterday_rate = round((mark_price - prev_price) / prev_price * 100, 2)
 
-    # 1시간 단위 등락률 + 4시간 블록 (총 4줄: 최근 16시간)
     df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=17)
     changes = []
     for i in range(1, 17):
@@ -206,16 +205,14 @@ def send_past_summary():
                     space_padding = ' ' * (max_len - len(s))
                     symbol_part = s + space_padding
                     change_part = change.rjust(12)
-                    yest_part = f"({yest})"
-
-                    # 3. 중복 이모지 붙이기
-                    count = symbol_counts.get(s, 0)
+                    yest_part = f"({yest})"                    
+                    count = symbol_counts.get(s, 0)                # 중복 이모지 붙이기
                     if count == 2:
                         yest_part += " ▲"
                     elif count >= 3:
                         yest_part += " 🔴"
 
-                    msg += f"            {symbol_part}  {change_part} {yest_part.rjust(18)}\n"
+                    msg += f"            {symbol_part}  {change_part} {yest_part}\n"
         msg += "\n"
 
     send_message(msg.strip())
@@ -257,6 +254,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
