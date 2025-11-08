@@ -2,3 +2,4 @@ flask
 pyupbit
 websockets
 requests
+beautifulsoup4
