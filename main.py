@@ -74,9 +74,9 @@ def get_btc_summary_block():
 
     lines = []
     lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
-    lines.append(f"UP {upbit_price / 1e8:.2f}억 +{upbit_today_rate:.2f}% (+{upbit_yesterday_rate:.2f}%) ${upbit_usd:,}")
-    lines.append(f"BY {bybit_price / 1e8:.2f}억 +{bybit_today_rate:.2f}% (+{bybit_yesterday_rate:.2f}%) ${bybit_usd:,}")
-    lines.append(" 4H rate(1H rate)")
+    lines.append(f"UP {upbit_price / 1e8:.2f}억 {upbit_today_rate:.2f}% ({upbit_yesterday_rate:.2f}%) ${upbit_usd:,}")
+    lines.append(f"BY {bybit_price / 1e8:.2f}억 {bybit_today_rate:.2f}% ({bybit_yesterday_rate:.2f}%) ${bybit_usd:,}")
+    lines.append("  4H rate(1H rate)")
 
     # 시간대 라벨 붙이기 (16~13H, 12~9H, 8~5H, 4~1H)
     for i in range(0, len(changes), 4):
@@ -84,7 +84,7 @@ def get_btc_summary_block():
         block_total = round(sum(block), 2)
         hour_start = 16 - i
         hour_end = hour_start - 3
-        label = f" [{hour_start}H]"
+        label = f"  {hour_start}H]"
         block_line = f"{label} {block_total:+.2f}% ({'  '.join([f'{r:+.2f}%' for r in block])})"
         lines.append(block_line)
 
@@ -185,17 +185,17 @@ def send_past_summary():
             symbols = grouped[condition]
             if symbols:
                 max_len = max(len(s) for s in symbols)
-                sorted_items = sorted(
+                sorted_items = sorted(                                        # 정렬
                     symbols.items(),
                     key=lambda x: float(x[1][0].replace('%', '').replace('+', '')),
                     reverse=True
                 )
                 msg += f"      {emoji_map[condition]} {condition}:\n"
-                for s, (change, yest) in sorted_items:
+                for s, (change, yest) in sorted_items:                        #들여쓰기
                     space_padding = ' ' * (max_len - len(s))
                     symbol_part = s + space_padding
-                    change_part = change.rjust(8)
-                    yest_part = f"({yest})".rjust(10)
+                    change_part = change.rjust(12)
+                    yest_part = f"({yest})".rjust(18)
                     msg += f"            {symbol_part}  {change_part} {yest_part}\n"
         msg += "\n"
 
@@ -238,6 +238,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
