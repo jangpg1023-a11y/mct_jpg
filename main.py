@@ -44,16 +44,27 @@ def get_usdkrw():
     return today, yesterday
     
 def get_bybit_yesterday_rate():
-    url = "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=2"
+    # UTC 기준 어제 날짜
+    utc_yesterday = datetime.utcnow().date() - timedelta(days=1)
+    target_date = utc_yesterday.strftime("%Y-%m-%d")
+
+    # 최근 5일치 일봉 조회
+    url = "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=5"
     res = requests.get(url)
     data = res.json()
     ohlcv = data.get('result', {}).get('list', [])
-    if len(ohlcv) < 2:
-        return None
-    open_y = float(ohlcv[-2][1])
-    close_y = float(ohlcv[-2][4])
-    rate = (close_y - open_y) / open_y * 100
-    return rate
+
+    # 날짜 필터링
+    for candle in ohlcv:
+        ts = int(candle[0]) // 1000
+        candle_date = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+        if candle_date == target_date:
+            open_y = float(candle[1])
+            close_y = float(candle[4])
+            rate = (close_y - open_y) / open_y * 100
+            return round(rate, 2)
+
+    return None
 
 def get_btc_summary_block():
     usdkrw_today, usdkrw_yesterday = get_usdkrw()
@@ -104,7 +115,6 @@ def get_btc_summary_block():
         lines.append(block_line)
 
     return "\n".join(lines)
-
 
 def get_all_krw_tickers():
     return pyupbit.get_tickers(fiat="KRW")
@@ -184,6 +194,9 @@ def send_past_summary():
     msg = get_btc_summary_block() + "\n\n"
     msg += f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
 
+    # 전체 감시 대상 종목 리스트
+    all_symbols = get_all_krw_symbols()  # 예: ["KRW-BTC", "KRW-ETH", ...]
+
     # 종목 등장 횟수 계산
     symbol_counts = {}
     for i in [0, 1, 2]:
@@ -193,25 +206,27 @@ def send_past_summary():
                 symbol = parts[0].replace("KRW-", "")
                 symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
 
-    # 날짜별 출력
     for i in [0, 1, 2]:
         entries = summary_log.get(i, [])
 
-        # 상승/하락 종목 수 및 비율 계산
+        # 전체 종목 기준 상승/하락 계산
         up_count = 0
         down_count = 0
-        for entry in entries:
-            parts = entry.split(" | ")
-            if len(parts) == 4:
-                _, _, change, _ = parts
-                try:
-                    rate = float(change.replace('%', '').replace('+', ''))
-                    if rate > 0:
-                        up_count += 1
-                    elif rate < 0:
-                        down_count += 1
-                except:
+        for symbol in all_symbols:
+            try:
+                df = pyupbit.get_ohlcv(symbol, interval="day", count=i+2)
+                if df is None or len(df) < i+2:
                     continue
+                row = df.iloc[-(i+1)]
+                open_price = row['open']
+                close_price = row['close']
+                rate = (close_price - open_price) / open_price * 100
+                if rate > 0:
+                    up_count += 1
+                elif rate < 0:
+                    down_count += 1
+            except:
+                continue
 
         total = up_count + down_count
         if total > 0:
