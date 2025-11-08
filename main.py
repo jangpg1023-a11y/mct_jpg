@@ -32,24 +32,53 @@ def get_usdkrw():
     url = "https://finance.naver.com/marketindex/"
     res = requests.get(url)
     soup = BeautifulSoup(res.text, "html.parser")
-    price = soup.select_one("div.head_info > span.value").text
-    return float(price.replace(",", "")), float(price.replace(",", ""))
+
+    today_price = soup.select_one("div.head_info > span.value").text
+    today = float(today_price.replace(",", ""))
+
+    diff_text = soup.select_one("div.head_info > span.change").text
+    diff = float(diff_text.replace(",", "").replace("+", "").replace("-", ""))
+    direction = soup.select_one("div.head_info > span.blind").text
+
+    yesterday = today + diff if "하락" in direction else today - diff
+    return today, yesterday
+
+def get_bybit_yesterday_rate():
+    symbol = "BTCUSDT"
+    category = "linear"
+    interval = "D"
+
+    today = datetime.utcnow().date()
+    yesterday = today - timedelta(days=1)
+    start_ts = int(datetime(yesterday.year, yesterday.month, yesterday.day).timestamp() * 1000)
+    end_ts = int(datetime(today.year, today.month, today.day).timestamp() * 1000)
+
+    url = f"https://api.bybit.com/v5/market/kline?category={category}&symbol={symbol}&interval={interval}&start={start_ts}&end={end_ts}"
+    res = requests.get(url).json()
+
+    if res.get("result") and res["result"].get("list"):
+        kline = res["result"]["list"][0]
+        open_price = float(kline[1])
+        close_price = float(kline[4])
+        return round((close_price - open_price) / open_price * 100, 2)
+    return 0.0
 
 def get_btc_summary_block():
     usdkrw_today, usdkrw_yesterday = get_usdkrw()
 
-    # UPBIT
+    # 📈 UPBIT
     df = pyupbit.get_ohlcv("KRW-BTC", interval="day", count=2)
     today_open = df.iloc[-1]['open']
     today_close = df.iloc[-1]['close']
     yesterday_open = df.iloc[-2]['open']
     yesterday_close = df.iloc[-2]['close']
+
     upbit_price = int(today_close)
     upbit_usd = int(upbit_price / usdkrw_today)
     upbit_today_rate = round((today_close - today_open) / today_open * 100, 2)
     upbit_yesterday_rate = round((yesterday_close - yesterday_open) / yesterday_open * 100, 2)
 
-    # BYBIT
+    # 📉 BYBIT
     url = "https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT"
     res = requests.get(url).json()
     bybit_data = res['result']['list'][0]
@@ -58,11 +87,9 @@ def get_btc_summary_block():
     bybit_usd = int(bybit_usd_float)
     bybit_price = int(bybit_usd_float * usdkrw_today)
     bybit_today_rate = round(float(bybit_data['price24hPcnt']) * 100, 2)
+    bybit_yesterday_rate = get_bybit_yesterday_rate()
 
-    mark_price = float(bybit_data['markPrice'])
-    prev_price = mark_price / (1 + float(bybit_data['price24hPcnt']))
-    bybit_yesterday_rate = round((mark_price - prev_price) / prev_price * 100, 2)
-
+    # ⏱️ 1시간 단위 변화율
     df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=17)
     changes = []
     for i in range(1, 17):
@@ -71,23 +98,21 @@ def get_btc_summary_block():
         rate = round((close_price - open_price) / open_price * 100, 2)
         changes.append(rate)
 
+    # 🧾 메시지 구성
     lines = []
     lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
-    lines.append(f"UP {upbit_price / 1e8:.2f}억 {upbit_today_rate:.2f}% ({upbit_yesterday_rate:.2f}%) ${upbit_usd:,}")
-    lines.append(f"BY {bybit_price / 1e8:.2f}억 {bybit_today_rate:.2f}% ({bybit_yesterday_rate:.2f}%) ${bybit_usd:,}")
-    lines.append("  4H rate(1H rate)")
+    lines.append(f"UPBIT  {upbit_price / 1e8:.2f}억  {upbit_today_rate:.2f}% ({upbit_yesterday_rate:.2f}%)  ${upbit_usd:,}")
+    lines.append(f"BYBIT  {bybit_price / 1e8:.2f}억  {bybit_today_rate:.2f}% ({bybit_yesterday_rate:.2f}%)  ${bybit_usd:,}")
+    lines.append("  4H rate (1H rate)")
 
-    # 시간대 라벨 붙이기 (16~13H, 12~9H, 8~5H, 4~1H)
     for i in range(0, len(changes), 4):
         block = changes[i:i+4]
         block_total = round(sum(block), 2)
-        hour_start = 16 - i
-        hour_end = hour_start - 3
-        label = f"  {hour_start}H]"  #미사용
-        block_line = f"  {block_total:+.2f}% ({'  '.join([f'{r:+.2f}%' for r in block])})"
+        block_line = f" {block_total:+.2f}% ({'  '.join([f'{r:+.2f}%' for r in block])})"
         lines.append(block_line)
 
     return "\n".join(lines)
+
 
 def get_all_krw_tickers():
     return pyupbit.get_tickers(fiat="KRW")
@@ -273,6 +298,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
