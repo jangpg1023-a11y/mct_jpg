@@ -47,6 +47,8 @@ def get_bybit_day_rates():
         ohlcv = data.get('result', {}).get('list', [])
         today_rate = 0.0
         yesterday_rate = 0.0
+        today_close = 0.0
+
         for candle in ohlcv:
             ts = int(candle[0]) // 1000
             candle_date = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
@@ -54,14 +56,16 @@ def get_bybit_day_rates():
                 open_t = float(candle[1])
                 close_t = float(candle[4])
                 today_rate = round((close_t - open_t) / open_t * 100, 2)
+                today_close = close_t
             elif candle_date == yesterday_date:
                 open_y = float(candle[1])
                 close_y = float(candle[4])
                 yesterday_rate = round((close_y - open_y) / open_y * 100, 2)
-        return today_rate, yesterday_rate
+
+        return today_rate, yesterday_rate, today_close
     except Exception as e:
         print("❌ BYBIT 일별 변동률 오류:", e)
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0
 
 def get_btc_summary_block():
     try:
@@ -80,8 +84,10 @@ def get_btc_summary_block():
         upbit_today_rate = round((today_close - today_open) / today_open * 100, 2)
         upbit_yesterday_rate = round((yesterday_close - yesterday_open) / yesterday_open * 100, 2)
 
-        # BYBIT 변동률 (오늘/어제)
-        bybit_today_rate, bybit_yesterday_rate = get_bybit_day_rates()
+        # BYBIT 변동률 + 현재가
+        bybit_today_rate, bybit_yesterday_rate, bybit_close = get_bybit_day_rates()
+        bybit_price_krw = int(bybit_close * usdkrw_today)
+        bybit_price_usd = int(bybit_close)
 
         # UPBIT 시간봉 (1시간 간격)
         df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=17)
@@ -98,7 +104,7 @@ def get_btc_summary_block():
         lines = []
         lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
         lines.append(f"UPBIT  {upbit_price / 1e8:.2f}억  {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)  ${upbit_usd:,}")
-        lines.append(f"BYBIT  변동률  {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)")
+        lines.append(f"BYBIT  {bybit_price_krw / 1e8:.2f}억  {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)  ${bybit_price_usd:,}")
         lines.append("4H rate (1H rate)")
         for i in range(0, len(changes), 4):
             block = changes[i:i+4]
@@ -108,8 +114,7 @@ def get_btc_summary_block():
 
         return "\n".join(lines)
     except Exception as e:
-        print("❌ BTC 요약 블록 오류:", e)
-        return "❌ BTC 요약 블록 생성 실패"
+        return f"❌ BTC 요약 오류: {e}"
 
 def get_all_krw_tickers():
     return pyupbit.get_tickers(fiat="KRW")
@@ -309,6 +314,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
