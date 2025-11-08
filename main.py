@@ -4,7 +4,6 @@ from collections import OrderedDict
 from bs4 import BeautifulSoup
 from keep_alive import keep_alive
 
-# ──────────────── 기본 설정 ────────────────
 keep_alive()
 BOT_TOKEN = os.environ['BOT_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
@@ -34,7 +33,7 @@ def get_usdkrw():
     res = requests.get(url)
     soup = BeautifulSoup(res.text, "html.parser")
     price = soup.select_one("div.head_info > span.value").text
-    return float(price.replace(",", "")), float(price.replace(",", ""))  # 임시로 오늘=어제
+    return float(price.replace(",", "")), float(price.replace(",", ""))
 
 def get_btc_summary_block():
     usdkrw_today, usdkrw_yesterday = get_usdkrw()
@@ -57,33 +56,29 @@ def get_btc_summary_block():
     bybit_usd = int(bybit_usd_float)
     bybit_price = int(bybit_usd_float * usdkrw_today)
     bybit_today_rate = round(float(res['result']['list'][0]['price24hPcnt']) * 100, 2)
-    bybit_yesterday_rate = -0.85  # 필요시 계산 가능
+    bybit_yesterday_rate = -0.85
 
-    # 1시간 단위 등락률 + 누적 4시간 등락률
+    # 1시간 단위 등락률 + 4시간 블록
     df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=9)
     changes = []
     for i in range(1, 9):
         open_price = df_hour.iloc[i - 1]['close']
         close_price = df_hour.iloc[i]['close']
         rate = round((close_price - open_price) / open_price * 100, 2)
-        changes.append(f"{rate:+.2f}%")
+        changes.append(rate)
 
-    prev_open = df_hour.iloc[0]['close']
-    prev_close = df_hour.iloc[4]['close']
-    prev_rate = round((prev_close - prev_open) / prev_open * 100, 2)
+    lines = []
+    lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
+    lines.append(f"UP {upbit_price / 1e8:.2f}억 +{upbit_today_rate:.2f}% (+{upbit_yesterday_rate:.2f}%)  ${upbit_usd:,}")
+    lines.append(f"BY {bybit_price / 1e8:.2f}억 +{bybit_today_rate:.2f}% (+{bybit_yesterday_rate:.2f}%)  ${bybit_usd:,}")
+    lines.append("4H rate(1H rate)")
+    for i in range(0, len(changes) - 3, 4):
+        block = changes[i:i+4]
+        block_total = round(sum(block), 2)
+        block_line = f" {block_total:+.2f}% ({'  '.join([f'{r:+.2f}%' for r in block])})"
+        lines.append(block_line)
 
-    recent_open = df_hour.iloc[4]['close']
-    recent_close = df_hour.iloc[8]['close']
-    recent_rate = round((recent_close - recent_open) / recent_open * 100, 2)
-
-    return (
-        f"₿TC 정보  💱 ₩{usdkrw_today:.1f} (₩{usdkrw_yesterday:.1f})\n"
-        f"UP ₩{upbit_price / 100000000:.2f}억 (${upbit_usd:,}) {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)\n"
-        f"BY ₩{bybit_price / 100000000:.2f}억 (${bybit_usd:,}) {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)\n"
-        f"이전4시간: {prev_rate:+.2f}%  최근4시간: {recent_rate:+.2f}% \n"
-        f"({'  '.join(changes[:4])})\n"
-        f"({'  '.join(changes[4:])})"
-    )
+    return "\n".join(lines)
 
 def get_all_krw_tickers():
     return pyupbit.get_tickers(fiat="KRW")
@@ -152,16 +147,14 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
         if pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
             record_summary(i, ticker, "BBD", change_str, yesterday_rate)
-
         if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
             record_summary(i, ticker, "MA", change_str, yesterday_rate)
-
         if pc < bbup and cc > bbuc:
             record_summary(i, ticker, "BBU", change_str, yesterday_rate)
 
 def send_past_summary():
     emoji_map = {"BBD": "📉", "MA": "➖", "BBU": "📈"}
-    day_labels = {0: "🔥 D-0 ━━", 1: "⏳ D-1 ━━", 2: "⌛ D-2 ━━"}
+    day_labels = {0: "🔥 D-0 ━━", 1: "⏳ D+1 ━━", 2: "⌛ D+2 ━━"}
     msg = get_btc_summary_block() + "\n\n"
     msg += f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
 
@@ -189,14 +182,12 @@ def send_past_summary():
                 for s, (change, yest) in sorted_items:
                     symbol_part = s.ljust(max_len)
                     change_part = change.rjust(8)
-                    line += f"            {symbol_part}  {change_part}({yest})\n"
+                    line += f"            {symbol_part}  {change_part} ({yest})\n"
                 msg += line
-
         msg += "\n"
 
     send_message(msg.strip())
 
-# ──────────────── 루프 관리 ────────────────
 async def d0_loop():
     while True:
         summary_log[0] = []
@@ -205,7 +196,7 @@ async def d0_loop():
             check_conditions(ticker, price, day_indexes=[0])
             await asyncio.sleep(0.5)
         send_past_summary()
-        await asyncio.sleep(60 * 5)  # 테스트용 5분 주기
+        await asyncio.sleep(60 * 5)  # 5분 주기
 
 async def analyze_past_conditions():
     summary_log[1] = []
@@ -219,7 +210,7 @@ async def daily_summary_loop():
     while True:
         await analyze_past_conditions()
         send_past_summary()
-        await asyncio.sleep(60 * 60 * 3)
+        await asyncio.sleep(60 * 60 * 3)  # 3시간 주기
 
 async def main():
     global watchlist
@@ -234,6 +225,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
 
 
