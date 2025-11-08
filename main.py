@@ -71,7 +71,6 @@ def get_btc_summary_block():
     try:
         usdkrw_today, usdkrw_yesterday = get_usdkrw()
 
-        # UPBIT 일봉
         df = pyupbit.get_ohlcv("KRW-BTC", interval="day", count=2)
         if df is None or len(df) < 2:
             raise ValueError("UPBIT 일봉 데이터 부족")
@@ -84,12 +83,10 @@ def get_btc_summary_block():
         upbit_today_rate = round((today_close - today_open) / today_open * 100, 2)
         upbit_yesterday_rate = round((yesterday_close - yesterday_open) / yesterday_open * 100, 2)
 
-        # BYBIT 변동률 + 현재가
         bybit_today_rate, bybit_yesterday_rate, bybit_close = get_bybit_day_rates()
         bybit_price_krw = int(bybit_close * usdkrw_today)
         bybit_price_usd = int(bybit_close)
 
-        # UPBIT 시간봉 (1시간 간격)
         df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=17)
         if df_hour is None or len(df_hour) < 17:
             raise ValueError("UPBIT 시간봉 데이터 부족")
@@ -100,7 +97,6 @@ def get_btc_summary_block():
             rate = round((close_price - open_price) / open_price * 100, 2)
             changes.append(rate)
 
-        # 출력
         lines = []
         lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
         lines.append(f"UPBIT  {upbit_price / 1e8:.2f}억  {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)  ${upbit_usd:,}")
@@ -109,7 +105,7 @@ def get_btc_summary_block():
         for i in range(0, len(changes), 4):
             block = changes[i:i+4]
             block_total = round(sum(block), 2)
-            block_line = f"{block_total:+.2f}% ・{'  '.join([f'{r:+.2f}%' for r in block])}"
+            block_line = f"{block_total:+.2f}% ・{'  '.join([f'{r:+.2f}.' for r in block])}"
             lines.append(block_line)
 
         return "\n".join(lines)
@@ -195,37 +191,24 @@ def get_updown_ratio_by_day(day_offset):
 
     for ticker in tickers:
         try:
-            # 실시간 분석: 오늘(D-day)
-            if day_offset == 0:
-                df = pyupbit.get_ohlcv(ticker, interval="day", count=2)
-            else:
-                df = get_ohlcv_cached(ticker)
-
+            df = pyupbit.get_ohlcv(ticker, interval="day", count=2) if day_offset == 0 else get_ohlcv_cached(ticker)
             if df is None or len(df) < day_offset + 2:
                 continue
-
             row = df.iloc[-(day_offset + 1)]
             open_price = row['open']
             close_price = row['close']
             if open_price == 0:
                 continue
-
             rate = (close_price - open_price) / open_price * 100
             if rate > 0:
                 up_count += 1
             elif rate < 0:
                 down_count += 1
-
-        except Exception as e:
-            print(f"❌ {ticker} 오류: {e}")
+        except:
             continue
 
     total = up_count + down_count
-    if total > 0:
-        up_ratio = round(up_count / total * 100, 1)
-        return f"{up_ratio}% ({up_count} / {down_count})"
-    else:
-        return ""
+    return f"{round(up_count / total * 100, 1)}% ({up_count} / {down_count})" if total > 0 else ""
 
 def send_past_summary():
     emoji_map = {"BBD": "📉", "MA": "➖", "BBU": "📈"}
@@ -277,44 +260,23 @@ def send_past_summary():
 
     send_message(msg.strip())
 
-async def d0_loop():
+async def hourly_summary_loop():
     while True:
         summary_log[0] = []
+        summary_log[1] = []
+        summary_log[2] = []
         for ticker in watchlist:
             price = pyupbit.get_current_price(ticker) or 0
-            check_conditions(ticker, price, day_indexes=[0])
+            check_conditions(ticker, price, day_indexes=[0, 1, 2])
             await asyncio.sleep(0.5)
         send_past_summary()
-        await asyncio.sleep(60 * 5)  # 5분 주기
-
-async def analyze_past_conditions():
-    summary_log[1] = []
-    summary_log[2] = []
-    for ticker in watchlist:
-        price = pyupbit.get_current_price(ticker) or 0
-        check_conditions(ticker, price, day_indexes=[1, 2])
-        await asyncio.sleep(0.5)
-
-async def daily_summary_loop():
-    while True:
-        await analyze_past_conditions()
-        send_past_summary()
-        await asyncio.sleep(60 * 60 * 3)  # 3시간 주기
+        await asyncio.sleep(3600)  # 1시간 주기
 
 async def main():
     global watchlist
     watchlist = get_all_krw_tickers()
     send_message("📡 종목 감시 시작")
-
-    asyncio.create_task(daily_summary_loop())
-    asyncio.create_task(d0_loop())
-
-    while True:
-        await asyncio.sleep(60)
+    await hourly_summary_loop()
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
