@@ -100,7 +100,7 @@ def get_btc_summary_block():
     for i in range(0, len(changes), 4):
         block = changes[i:i+4]
         block_total = round(sum(block), 2)
-        block_line = f"{block_total:+.2f}% ({'  '.join([f'{r:+.2f}%' for r in block])})"
+        block_line = f"{block_total:+.2f}% ・{'  '.join([f'{r:+.2f}%' for r in block])}"
         lines.append(block_line)
 
     return "\n".join(lines)
@@ -290,6 +290,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
