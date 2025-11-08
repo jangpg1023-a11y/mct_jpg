@@ -28,7 +28,7 @@ def send_message(text):
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
-def getbybityesterday_rate():
+def get_bybit_yesterday_rate():
     symbol = "BTCUSDT"
     category = "linear"
     interval = "D"
@@ -36,7 +36,7 @@ def getbybityesterday_rate():
     # UTC 기준으로 어제 하루 범위 설정
     yesterday_utc = datetime.utcnow().date() - timedelta(days=1)
     startts = int(datetime(yesterdayutc.year, yesterdayutc.month, yesterdayutc.day).timestamp() * 1000)
-    endts = startts + 24  60  60 * 1000  # 하루 후
+    endts = startts + 24 * 60 * 60 * 1000  # 하루 후
 
     url = f"https://api.bybit.com/v5/market/kline?category={category}&symbol={symbol}&interval={interval}&start={startts}&end={endts}&limit=1"
 
@@ -290,6 +290,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
