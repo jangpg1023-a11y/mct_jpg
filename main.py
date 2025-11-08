@@ -168,6 +168,17 @@ def send_past_summary():
     msg = get_btc_summary_block() + "\n\n"
     msg += f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
 
+    # 1. 종목 등장 횟수 수동 계산
+    symbol_counts = {}
+    for i in [0, 1, 2]:
+        entries = summary_log.get(i, [])
+        for entry in entries:
+            parts = entry.split(" | ")
+            if len(parts) == 4:
+                symbol = parts[0].replace("KRW-", "")
+                symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+
+    # 2. 날짜별 출력
     for i in [0, 1, 2]:
         entries = summary_log.get(i, [])
         msg += f"{day_labels[i]}\n"
@@ -185,18 +196,26 @@ def send_past_summary():
             symbols = grouped[condition]
             if symbols:
                 max_len = max(len(s) for s in symbols)
-                sorted_items = sorted(                                        # 정렬
+                sorted_items = sorted(
                     symbols.items(),
                     key=lambda x: float(x[1][0].replace('%', '').replace('+', '')),
                     reverse=True
                 )
                 msg += f"      {emoji_map[condition]} {condition}:\n"
-                for s, (change, yest) in sorted_items:                        #들여쓰기
+                for s, (change, yest) in sorted_items:
                     space_padding = ' ' * (max_len - len(s))
                     symbol_part = s + space_padding
                     change_part = change.rjust(12)
-                    yest_part = f"({yest})".rjust(18)
-                    msg += f"            {symbol_part}  {change_part} {yest_part}\n"
+                    yest_part = f"({yest})"
+
+                    # 3. 중복 이모지 붙이기
+                    count = symbol_counts.get(s, 0)
+                    if count == 2:
+                        yest_part += " ▲"
+                    elif count >= 3:
+                        yest_part += " 🔴"
+
+                    msg += f"            {symbol_part}  {change_part} {yest_part.rjust(18)}\n"
         msg += "\n"
 
     send_message(msg.strip())
@@ -238,6 +257,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
