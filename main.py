@@ -202,17 +202,15 @@ def send_past_summary():
                 )
                 msg += f"      {emoji_map[condition]} {condition}:\n"
                 for s, (change, yest) in sorted_items:
-                    space_padding = ' ' * (max_len - len(s))
-                    symbol_part = s + space_padding
-                    change_part = change.rjust(12)
-                    yest_part = f"({yest})"                    
-                    count = symbol_counts.get(s, 0)                # 중복 이모지 붙이기
+                    count = symbol_counts.get(s, 0)
+                    yest_part = f"({yest})"
                     if count == 2:
-                        yest_part += " ▲"
+                    yest_part += " ▲"
                     elif count >= 3:
                         yest_part += " 🔴"
 
-                    msg += f"            {symbol_part}  {change_part} {yest_part}\n"
+                    msg += f"            {s:<{max_len}}  {change:>8} {yest_part}\n"
+
         msg += "\n"
 
     send_message(msg.strip())
@@ -254,6 +252,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
