@@ -194,9 +194,6 @@ def send_past_summary():
     msg = get_btc_summary_block() + "\n\n"
     msg += f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
 
-    # 전체 감시 대상 종목 리스트
-    all_symbols = get_all_krw_symbols()  # 예: ["KRW-BTC", "KRW-ETH", ...]
-
     # 종목 등장 횟수 계산
     symbol_counts = {}
     for i in [0, 1, 2]:
@@ -209,24 +206,21 @@ def send_past_summary():
     for i in [0, 1, 2]:
         entries = summary_log.get(i, [])
 
-        # 전체 종목 기준 상승/하락 계산
+        # 상승/하락 종목 수 및 비율 계산 (감지된 종목 기준)
         up_count = 0
         down_count = 0
-        for symbol in all_symbols:
-            try:
-                df = pyupbit.get_ohlcv(symbol, interval="day", count=i+2)
-                if df is None or len(df) < i+2:
+        for entry in entries:
+            parts = entry.split(" | ")
+            if len(parts) == 4:
+                _, _, change, _ = parts
+                try:
+                    rate = float(change.replace('%', '').replace('+', ''))
+                    if rate > 0:
+                        up_count += 1
+                    elif rate < 0:
+                        down_count += 1
+                except:
                     continue
-                row = df.iloc[-(i+1)]
-                open_price = row['open']
-                close_price = row['close']
-                rate = (close_price - open_price) / open_price * 100
-                if rate > 0:
-                    up_count += 1
-                elif rate < 0:
-                    down_count += 1
-            except:
-                continue
 
         total = up_count + down_count
         if total > 0:
@@ -305,6 +299,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
