@@ -1,5 +1,5 @@
 import asyncio, pyupbit, requests, os, time
-from datetime import datetime, timezone,timedelta
+from datetime import datetime, timezone
 from collections import OrderedDict
 from bs4 import BeautifulSoup
 from keep_alive import keep_alive
@@ -28,32 +28,32 @@ def send_message(text):
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
+def get_usdkrw():
+    url = "https://finance.naver.com/marketindex/"
+    res = requests.get(url)
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    today_price = soup.select_one("div.head_info > span.value").text
+    today = float(today_price.replace(",", ""))
+
+    diff_text = soup.select_one("div.head_info > span.change").text
+    diff = float(diff_text.replace(",", "").replace("+", "").replace("-", ""))
+    direction = soup.select_one("div.head_info > span.blind").text
+
+    yesterday = today + diff if "하락" in direction else today - diff
+    return today, yesterday
+    
 def get_bybit_yesterday_rate():
-    symbol = "BTCUSDT"
-    category = "linear"
-    interval = "D"
-
-    # UTC 기준으로 어제 하루 범위 설정
-    yesterday_utc = datetime.utcnow().date() - timedelta(days=1)
-    startts = int(datetime(yesterdayutc.year, yesterdayutc.month, yesterdayutc.day).timestamp() * 1000)
-    endts = startts + 24 * 60 * 60 * 1000  # 하루 후
-
-    url = f"https://api.bybit.com/v5/market/kline?category={category}&symbol={symbol}&interval={interval}&start={startts}&end={endts}&limit=1"
-
-    try:
-        res = requests.get(url).json()
-        kline_list = res.get("result", {}).get("list", [])
-        if kline_list:
-            kline = kline_list[0]
-            open_price = float(kline[1])
-            close_price = float(kline[4])
-            return round((closeprice - openprice) / open_price * 100, 2)
-        else:
-            print("BYBIT: 어제 일봉 데이터 없음")
-            return 0.0
-    except Exception as e:
-        print(f"BYBIT API 오류: {e}")
-        return 0.0
+    url = "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=2"
+    res = requests.get(url)
+    data = res.json()
+    ohlcv = data.get('result', {}).get('list', [])
+    if len(ohlcv) < 2:
+        return None
+    open_y = float(ohlcv[-2][1])
+    close_y = float(ohlcv[-2][4])
+    rate = (close_y - open_y) / open_y * 100
+    return rate
 
 def get_btc_summary_block():
     usdkrw_today, usdkrw_yesterday = get_usdkrw()
@@ -290,6 +290,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
