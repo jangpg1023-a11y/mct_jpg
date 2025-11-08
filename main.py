@@ -77,11 +77,12 @@ def get_btc_summary_block():
     recent_rate = round((recent_close - recent_open) / recent_open * 100, 2)
 
     return (
-        f"₿ BTC 정보  💱 ₩{usdkrw_today:.1f}/USD (₩{usdkrw_yesterday:.1f})\n"
-        f"UPBIT ₩{upbit_price:,} (${upbit_usd:,}) {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)\n"
-        f"BYBIT ₩{bybit_price:,} (${bybit_usd:,}) {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)\n"
-        f"이전4: {prev_rate:+.2f}% ({'  '.join(changes[:4])})\n"
-        f"4시간: {recent_rate:+.2f}% ({'  '.join(changes[4:])})"
+        f"₿TC 정보  💱 ₩{usdkrw_today:.1f} (₩{usdkrw_yesterday:.1f})\n"
+        f"UPBIT ₩{upbit_price / 100000000:.2f}억 (${upbit_usd:,}) {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)\n"
+        f"BYBIT ₩{bybit_price / 100000000:.2f}억 (${bybit_usd:,}) {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)\n"
+        f"이전4시간: {prev_rate:+.2f}%  최근4시간: {recent_rate:+.2f}% \n"
+        f"({'  '.join(changes[:4])})\n"
+        f"({'  '.join(changes[4:])})"
     )
 
 def get_all_krw_tickers():
@@ -151,17 +152,14 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
         if pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
             if i == 0:
-                send_message(f"📉 BBD + MA7 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
             record_summary(i, ticker, "BBD", change_str, yesterday_rate)
 
         if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
             if i == 0:
-                send_message(f"➖ MA120 + MA7 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
             record_summary(i, ticker, "MA", change_str, yesterday_rate)
 
         if pc < bbup and cc > bbuc:
             if i == 0:
-                send_message(f"📈 BBU 상단 (D-{i})\n{ticker} | 현재가: {format_price(price)} {change_str}")
             record_summary(i, ticker, "BBU", change_str, yesterday_rate)
 
 def send_past_summary():
@@ -187,12 +185,14 @@ def send_past_summary():
                 max_len = max(len(s) for s in symbols)
                 sorted_items = sorted(
                     symbols.items(),
-                    key=lambda x: float(x[1][0].replace('%', '').replace('+', '')),
+                    key=lambda x: float(x[1][0].replace('%', '').replace('+', '').replace('-', '')),
                     reverse=True
                 )
                 line = f"      {emoji_map[condition]} {condition}:\n"
                 for s, (change, yest) in sorted_items:
-                    line += f"            {s.ljust(max_len)}  {change.rjust(7)} ({yest})\n"
+                    symbol_part = s.ljust(max_len)
+                    change_part = change.rjust(8)
+                    line += f"            {symbol_part}  {change_part}({yest})\n"
                 msg += line
 
         msg += "\n"
@@ -237,4 +237,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
