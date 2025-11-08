@@ -69,8 +69,8 @@ def get_btc_summary_block():
 
     lines = []
     lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
-    lines.append(f"UP {upbit_price / 1e8:.2f}억 +{upbit_today_rate:.2f}% (+{upbit_yesterday_rate:.2f}%)  ${upbit_usd:,}")
-    lines.append(f"BY {bybit_price / 1e8:.2f}억 +{bybit_today_rate:.2f}% (+{bybit_yesterday_rate:.2f}%)  ${bybit_usd:,}")
+    lines.append(f"UP {upbit_price / 1e8:.2f}억 +{upbit_today_rate:.2f}% (+{upbit_yesterday_rate:.2f}%) ${upbit_usd:,}")
+    lines.append(f"BY {bybit_price / 1e8:.2f}억 +{bybit_today_rate:.2f}% (+{bybit_yesterday_rate:.2f}%) ${bybit_usd:,}")
     lines.append("4H rate(1H rate)")
     for i in range(0, len(changes) - 3, 4):
         block = changes[i:i+4]
@@ -225,5 +225,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
