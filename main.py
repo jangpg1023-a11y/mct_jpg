@@ -1,5 +1,5 @@
 import asyncio, pyupbit, requests, os, time
-from datetime import datetime, timezone
+from datetime import datetime, timezone,timedelta
 from collections import OrderedDict
 from bs4 import BeautifulSoup
 from keep_alive import keep_alive
@@ -290,6 +290,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
