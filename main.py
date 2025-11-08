@@ -152,15 +152,15 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
         if pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
             if i == 0:
-            record_summary(i, ticker, "BBD", change_str, yesterday_rate)
+                record_summary(i, ticker, "BBD", change_str, yesterday_rate)
 
         if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
             if i == 0:
-            record_summary(i, ticker, "MA", change_str, yesterday_rate)
+                record_summary(i, ticker, "MA", change_str, yesterday_rate)
 
         if pc < bbup and cc > bbuc:
             if i == 0:
-            record_summary(i, ticker, "BBU", change_str, yesterday_rate)
+                record_summary(i, ticker, "BBU", change_str, yesterday_rate)
 
 def send_past_summary():
     emoji_map = {"BBD": "📉", "MA": "➖", "BBU": "📈"}
@@ -237,5 +237,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
