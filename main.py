@@ -78,8 +78,8 @@ def get_btc_summary_block():
 
     return (
         f"₿TC 정보  💱 ₩{usdkrw_today:.1f} (₩{usdkrw_yesterday:.1f})\n"
-        f"UPBIT ₩{upbit_price / 100000000:.2f}억 (${upbit_usd:,}) {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)\n"
-        f"BYBIT ₩{bybit_price / 100000000:.2f}억 (${bybit_usd:,}) {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)\n"
+        f"UP ₩{upbit_price / 100000000:.2f}억 (${upbit_usd:,}) {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)\n"
+        f"BY ₩{bybit_price / 100000000:.2f}억 (${bybit_usd:,}) {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)\n"
         f"이전4시간: {prev_rate:+.2f}%  최근4시간: {recent_rate:+.2f}% \n"
         f"({'  '.join(changes[:4])})\n"
         f"({'  '.join(changes[4:])})"
@@ -151,16 +151,13 @@ def check_conditions(ticker, price, day_indexes=[0]):
             continue
 
         if pc < bbdp and pc < ma7p and cc > bbdc and cc > ma7c:
-            if i == 0:
-                record_summary(i, ticker, "BBD", change_str, yesterday_rate)
+            record_summary(i, ticker, "BBD", change_str, yesterday_rate)
 
         if pc < ma120p and pc < ma7p and cc > ma120c and cc > ma7c:
-            if i == 0:
-                record_summary(i, ticker, "MA", change_str, yesterday_rate)
+            record_summary(i, ticker, "MA", change_str, yesterday_rate)
 
         if pc < bbup and cc > bbuc:
-            if i == 0:
-                record_summary(i, ticker, "BBU", change_str, yesterday_rate)
+            record_summary(i, ticker, "BBU", change_str, yesterday_rate)
 
 def send_past_summary():
     emoji_map = {"BBD": "📉", "MA": "➖", "BBU": "📈"}
