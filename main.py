@@ -205,7 +205,7 @@ def send_past_summary():
                     count = symbol_counts.get(s, 0)
                     yest_part = f"({yest})"
                     if count == 2:
-                    yest_part += " ▲"
+                        yest_part += " ▲"
                     elif count >= 3:
                         yest_part += " 🔴"
 
@@ -252,6 +252,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
