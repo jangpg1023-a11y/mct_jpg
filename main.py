@@ -83,8 +83,8 @@ def get_btc_summary_block():
         block_total = round(sum(block), 2)
         hour_start = 16 - i
         hour_end = hour_start - 3
-        label = f"  {hour_start}H]"
-        block_line = f"{label} {block_total:+.2f}% ({'  '.join([f'{r:+.2f}%' for r in block])})"
+        label = f"  {hour_start}H]"  #미사용
+        block_line = f"  {block_total:+.2f}% ({'  '.join([f'{r:+.2f}%' for r in block])})"
         lines.append(block_line)
 
     return "\n".join(lines)
@@ -167,22 +167,44 @@ def send_past_summary():
     msg = get_btc_summary_block() + "\n\n"
     msg += f"📊 Summary (UTC {datetime.now(timezone.utc).strftime('%m/%d %H:%M')})\n\n"
 
-    # 1. 종목 등장 횟수 수동 계산
+    # 종목 등장 횟수 계산
     symbol_counts = {}
     for i in [0, 1, 2]:
-        entries = summary_log.get(i, [])
-        for entry in entries:
+        for entry in summary_log.get(i, []):
             parts = entry.split(" | ")
             if len(parts) == 4:
                 symbol = parts[0].replace("KRW-", "")
                 symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
 
-    # 2. 날짜별 출력
+    # 날짜별 출력
     for i in [0, 1, 2]:
         entries = summary_log.get(i, [])
-        msg += f"{day_labels[i]}\n"
-        grouped = {"BBD": {}, "MA": {}, "BBU": {}}
 
+        # 상승/하락 종목 수 및 비율 계산
+        up_count = 0
+        down_count = 0
+        for entry in entries:
+            parts = entry.split(" | ")
+            if len(parts) == 4:
+                _, _, change, _ = parts
+                try:
+                    rate = float(change.replace('%', '').replace('+', ''))
+                    if rate > 0:
+                        up_count += 1
+                    elif rate < 0:
+                        down_count += 1
+                except:
+                    continue
+
+        total = up_count + down_count
+        if total > 0:
+            up_ratio = round(up_count / total * 100, 1)
+            msg += f"{day_labels[i]} {up_ratio}% ({up_count} / {down_count})\n"
+        else:
+            msg += f"{day_labels[i]} 상승/하락 종목 없음\n"
+
+        # 조건별 그룹화
+        grouped = {"BBD": {}, "MA": {}, "BBU": {}}
         for entry in entries:
             parts = entry.split(" | ")
             if len(parts) == 4:
@@ -191,13 +213,14 @@ def send_past_summary():
                 if condition in grouped:
                     grouped[condition][symbol] = (change, yest)
 
+        # 조건별 출력
         for condition in ["BBD", "MA", "BBU"]:
             symbols = grouped[condition]
             if symbols:
                 max_len = max(len(s) for s in symbols)
                 sorted_items = sorted(
                     symbols.items(),
-                    key=lambda x: float(x[1][0].replace('%', '').replace('+', '')),
+                    key=lambda x: float(x[1][0].replace('%', '').replace('+', '')) if x[1][0] != "N/A" else -999,
                     reverse=True
                 )
                 msg += f"      {emoji_map[condition]} {condition}:\n"
@@ -205,12 +228,10 @@ def send_past_summary():
                     count = symbol_counts.get(s, 0)
                     yest_part = f"({yest})"
                     if count == 2:
-                        yest_part += " ▲"
+                        yest_part += " 🟢"
                     elif count >= 3:
                         yest_part += " 🔴"
-
                     msg += f"            {s:<{max_len}}  {change:>8} {yest_part}\n"
-
         msg += "\n"
 
     send_message(msg.strip())
@@ -252,6 +273,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
