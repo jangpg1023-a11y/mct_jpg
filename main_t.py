@@ -6,8 +6,8 @@ from keep_alive import keep_alive
 keep_alive()
 BOT_TOKEN = os.environ['BOT_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
-ACCESS_KEY = os.environ['UPBIT_ACCESS_KEY']
-SECRET_KEY = os.environ['UPBIT_SECRET_KEY']
+#ACCESS_KEY = os.environ['UPBIT_ACCESS_KEY']
+#SECRET_KEY = os.environ['UPBIT_SECRET_KEY']
 TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
 # 📦 캐시 설정
@@ -203,3 +203,4 @@ if __name__ == "__main__":
     send_message("📡 실시간 D-day 감시 시스템 시작")
     threading.Thread(target=monitoring_status_alert_loop, daemon=True).start()
     websocket_cycle_loop()
+
