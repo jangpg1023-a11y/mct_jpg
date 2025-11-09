@@ -4,9 +4,9 @@ from keepalive import keepalive
 
 🔐 환경변수 설정
 keep_alive()
-BOT_TOKEN = os.environ['BOTTOKEN']
-CHAT_ID = os.environ['CHATID']
-TELEGRAMURL = f'https://api.telegram.org/bot{BOTTOKEN}/sendMessage'
+BOT_TOKEN = os.environ['BOT_TOKEN']
+CHAT_ID = os.environ['CHAT_ID']
+TELEGRAMURL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
 📦 캐시 설정
 ohlcv_cache = OrderedDict()
@@ -198,4 +198,5 @@ if name == "main":
     send_message("📡 실시간 D-day 감시 시스템 시작")
     threading.Thread(target=monitoringstatusalert_loop, daemon=True).start()
     websocketcycleloop()
+
 
