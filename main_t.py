@@ -1,4 +1,5 @@
 import os, time, threading, json, requests, pyupbit, websocket
+import pandas as pd
 from flask import Flask
 from collections import OrderedDict
 
