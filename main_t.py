@@ -7,7 +7,7 @@ BOT_TOKEN = os.environ['BOT_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
-# 🛡 Render 슬립 방지용 서버
+# 🛡 슬립 방지용 Flask 서버
 app = Flask('')
 @app.route('/')
 def home(): return "I'm alive!"
@@ -55,10 +55,18 @@ def get_data(ticker):
 
 # 🔍 어제 조건 종목
 def find_yesterday():
-    return {t for t in pyupbit.get_tickers(fiat="KRW")
-            if (df := get_data(t)) is not None and len(df) >= 125
-            and (prev := df.iloc[-2])['close'] < prev['BBD'] < 1_000_000
-            and prev['close'] < prev['MA7']}
+    result = set()
+    for t in pyupbit.get_tickers(fiat="KRW"):
+        df = get_data(t)
+        if df is None or len(df) < 125: continue
+        prev = df.iloc[-2]
+        if (
+            not pd.isna(prev['BBD']) and not pd.isna(prev['MA7']) and
+            prev['close'] < prev['BBD'] < 1_000_000 and
+            prev['close'] < prev['MA7']
+        ):
+            result.add(t)
+    return result
 
 # ⚡ 실시간 감시
 def on_message(ws, msg):
@@ -73,10 +81,11 @@ def on_message(ws, msg):
         today.add(t)
 
     if t in yesterday | today and p > cur['BBD'] and p > cur['MA7'] and 1 < p < 1_000_000:
-        name = t.replace("KRW-", "")
-        change = ((p - cur['open']) / cur['open']) * 100 if cur['open'] > 0 else 0
-        send(f"🚀 {name}! {p:,} (+{change:.2f}%)")
-        bought[t] = {'price': p, 'time': time.time()}
+        if t not in bought:
+            name = t.replace("KRW-", "")
+            change = ((p - cur['open']) / cur['open']) * 100 if cur['open'] > 0 else 0
+            send(f"🚀 {name}! {p:,} (+{change:.2f}%)")
+            bought[t] = {'price': p, 'time': time.time()}
 
 def on_open(ws):
     tickers = pyupbit.get_tickers(fiat="KRW")
