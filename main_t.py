@@ -92,7 +92,7 @@ def send_status():
         rows.append((t, bd, ma, p, name, change, prev_close))
 
     msg = f"📊 감시 종목\n"
-    for t, _, _, _, name, change in rows:
+    for t, _, _, _, name, change, prev_close in rows:
         flag = " 🟢" if green_flag.get(t, False) else ""
         msg += f"{name}: {change:+.2f}%{flag}\n"
 
@@ -161,6 +161,7 @@ if __name__ == "__main__":
     threading.Thread(target=update_watchlist_loop, daemon=True).start()
     threading.Thread(target=status_loop, daemon=True).start()
     monitor_loop()
+
 
 
 
