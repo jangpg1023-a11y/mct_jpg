@@ -112,13 +112,13 @@ def monitor_loop(interval=120):
         ws.close()
 
 # ⏱ 상태 알림 루프
-def status_loop(interval=180):  # 테스트용 3분 주기
+def status_loop(interval=180):  # 3분 주기
     while True:
         time.sleep(interval)
         send(f"⏱ 감시 상태: 감시 {len(watchlist)}종목 / 보유 {len(bought)}종목")
         now = time.time()
 
-        # 📉 보유 종목 수익률 알림 (기존 유지)
+        # 📉 보유 종목 알림 유지
         for t, entry in bought.items():
             df = get_data(t)
             if df is None or len(df) < 2: continue
@@ -131,24 +131,39 @@ def status_loop(interval=180):  # 테스트용 3분 주기
                 send(f"📉 {name} {pnl:+.2f}% / {dur:.0f}분")
                 alerted[t] = now
 
-        # 📊 감시 중인 종목 상승률 추가
-        messages = []
+        # 📊 감시 종목 정보 수집
+        rows = []
         for t in watchlist:
             df = get_data(t)
             if df is None or len(df) < 2: continue
             cur = df.iloc[-1]
             prev = df.iloc[-2]
             name = t.replace("KRW-", "")
-            change = ((cur['close'] - prev['close']) / prev['close']) * 100
-            messages.append(f"{name}: {change:+.2f}%")
+            bd = cur.get('BBD', None)
+            ma = cur.get('MA7', None)
+            price = cur['close']
+            change = ((price - prev['close']) / prev['close']) * 100
+            if pd.isna(bd) or pd.isna(ma): continue
+            rows.append((bd, ma, price, name, change))
 
-        if messages:
-            send("📊 오늘 상승률\n" + "\n".join(messages))
+        # 📊 상승률 기준으로 종목 정렬
+        rows.sort(key=lambda x: -x[4])  # x[4] = 상승률
+
+        # 📊 메시지 구성: 각 종목마다 B/M/P 값 큰 순서대로 나열
+        if rows:
+            msg = "📊 감시 종목 정렬\n"
+            for bd, ma, price, name, change in rows:
+                values = {'B': bd, 'M': ma, 'P': price}
+                sorted_items = sorted(values.items(), key=lambda x: -x[1])  # 큰 값부터
+                parts = [f"{k} {int(v):,}" for k, v in sorted_items]
+                msg += f"{name}: {' '.join(parts)} R{change:+.2f}%\n"
+            send(msg.strip())
 
 # 🚀 실행
 if __name__ == "__main__":
     send("📡 실시간 D-day 감시 시스템 시작")
     threading.Thread(target=status_loop, daemon=True).start()
     monitor_loop()
+
 
 
