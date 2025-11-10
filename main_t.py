@@ -105,7 +105,6 @@ def send_status():
 
 # 상태 요약 루프 (1시간마다)
 def status_loop():
-    send_status()  # 시작 시 1회 알림
     while True:
         time.sleep(3600)
         send_status()
@@ -161,4 +160,5 @@ if __name__ == "__main__":
     threading.Thread(target=update_watchlist_loop, daemon=True).start()
     threading.Thread(target=status_loop, daemon=True).start()
     monitor_loop()
+
 
