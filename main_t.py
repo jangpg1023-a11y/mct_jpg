@@ -23,7 +23,7 @@ TTL = 10800  # 3시간
 watchlist = set()
 bought = {}
 alerted = {}
-ALERT_COOLDOWN = 3600  # 1시간
+ALERT_COOLDOWN = 180  # 1시간
 
 # 📨 텔레그램 메시지
 def send(msg):
@@ -134,3 +134,4 @@ if __name__ == "__main__":
     send("📡 실시간 D-day 감시 시스템 시작")
     threading.Thread(target=status_loop, daemon=True).start()
     monitor_loop()
+
