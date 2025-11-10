@@ -21,9 +21,6 @@ TTL = 10800  # 3시간
 
 # 🎯 전략 상태
 watchlist = set()
-bought = {}
-alerted = {}
-ALERT_COOLDOWN = 180  # 1시간
 
 # 📨 텔레그램 메시지
 def send(msg):
@@ -69,41 +66,15 @@ def build_watchlist():
     return result
 
 # ⚡ 실시간 감시
-def on_message(ws, msg):
-    data = json.loads(msg)
-    t, p = data.get('code'), data.get('trade_price')
-    df = get_data(t)
-    if df is None or len(df) < 125: return
-    cur = df.iloc[-1]
-
-    if p > cur['BBD'] and p > cur['MA7'] and 1 < p < 1_000_000:
-        if t not in bought:
-            name = t.replace("KRW-", "")
-            change = ((p - cur['open']) / cur['open']) * 100 if cur['open'] > 0 else 0
-            send(f"🚀 {name}! {p:,} (+{change:.2f}%)")
-            bought[t] = {'price': p, 'time': time.time()}
+def on_message(ws, msg): pass  # 보유 종목 제거됨
 
 def on_open(ws):
     ws.send(json.dumps([{"ticket": "watch"}, {"type": "trade", "codes": list(watchlist)}]))
 
 # 🔁 감시 루프
 def monitor_loop(interval=120):
-    global watchlist, bought
-    last_day = None
+    global watchlist
     while True:
-        now = time.localtime()
-        if now.tm_hour >= 9 and now.tm_mday != last_day:
-            for t, entry in list(bought.items()):
-                df = get_data(t)
-                if df is None or len(df) < 2: continue
-                cur = df.iloc[-1]
-                if cur['close'] < cur['MA7']:
-                    pnl = ((cur['close'] - entry['price']) / entry['price']) * 100
-                    name = t.replace("KRW-", "")
-                    send(f"📉 {name} 종결 {pnl:+.2f}%")
-                    del bought[t]
-            last_day = now.tm_mday
-
         watchlist = build_watchlist()
         ws = websocket.WebSocketApp("wss://api.upbit.com/websocket/v1",
                                     on_message=on_message, on_open=on_open)
@@ -112,26 +83,10 @@ def monitor_loop(interval=120):
         ws.close()
 
 # ⏱ 상태 알림 루프
-def status_loop(interval=180):  # 알림 주기는 나중에 조정 가능
+def status_loop(interval=180):
     while True:
         time.sleep(interval)
-        send(f"⏱ 감시 상태: 감시 {len(watchlist)}종목 / 보유 {len(bought)}종목")
-        now = time.time()
-
-        # 📉 보유 종목 알림 유지
-        for t, entry in bought.items():
-            df = get_data(t)
-            if df is None or len(df) < 2: continue
-            p = pyupbit.get_current_price(t)
-            if p is None: continue
-            pnl = ((p - entry['price']) / entry['price']) * 100
-            dur = (now - entry['time']) / 60
-            name = t.replace("KRW-", "")
-            if t not in alerted or now - alerted[t] > ALERT_COOLDOWN:
-                send(f"📉 {name} {pnl:+.2f}% / {dur:.0f}분")
-                alerted[t] = now
-
-        # 📊 감시 종목 정보 수집 (실시간 현재가 반영)
+        send(f"⏱ 감시 상태: 감시 {len(watchlist)}종목")
         rows = []
         for t in watchlist:
             df = get_data(t)
@@ -147,24 +102,26 @@ def status_loop(interval=180):  # 알림 주기는 나중에 조정 가능
             rows.append((bd, ma, p, name, change))
 
         # 📊 상승률 기준으로 종목 정렬
-        rows.sort(key=lambda x: -x[4])  # x[4] = 상승률
+        rows.sort(key=lambda x: -x[4])
 
-        # 📊 메시지 구성: B/M/P 값 큰 순서대로 나열
+        # 📊 메시지 구성: 종목명 + 상승률만 표시 (R 제거)
         if rows:
-            msg = "📊 감시 종목 정렬\n"
-            for bd, ma, p, name, change in rows:
-                values = {'B': bd, 'M': ma, 'P': p}
-                sorted_items = sorted(values.items(), key=lambda x: -x[1])  # 큰 값부터
-                parts = [f"{k} {int(v):,}" for k, v in sorted_items]
-                msg += f"{name}: {' '.join(parts)} R{change:+.2f}%\n"
+            msg = "📊 감시 종목\n"
+            for _, _, _, name, change in rows:
+                msg += f"{name}: {change:+.2f}%\n"
             send(msg.strip())
+
+        # 📉 오늘 하락: 현재가가 BBD와 MA7 모두 아래인 종목
+        fallen = []
+        for bd, ma, p, name, _ in rows:
+            if p < bd and p < ma:
+                fallen.append(name)
+        if fallen:
+            msg = "\n📉 오늘 하락\n" + ", ".join(fallen)
+            send(msg)
 
 # 🚀 실행
 if __name__ == "__main__":
     send("📡 실시간 D-day 감시 시스템 시작")
     threading.Thread(target=status_loop, daemon=True).start()
     monitor_loop()
-
-
-
-
