@@ -2,6 +2,14 @@ import os, time, threading, json, requests, pyupbit
 import pandas as pd
 from collections import OrderedDict
 from websocket import WebSocketApp
+from flask import Flask
+
+# 슬립 방지용 서버
+app = Flask('')
+@app.route('/')
+def home(): return "I'm alive!"
+threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
+
 
 # 환경변수
 BOT_TOKEN = os.environ['BOT_TOKEN']
@@ -153,3 +161,4 @@ if __name__ == "__main__":
     threading.Thread(target=update_watchlist_loop, daemon=True).start()
     threading.Thread(target=status_loop, daemon=True).start()
     monitor_loop()
+
