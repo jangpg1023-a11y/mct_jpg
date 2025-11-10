@@ -112,11 +112,13 @@ def monitor_loop(interval=120):
         ws.close()
 
 # ⏱ 상태 알림 루프
-def status_loop(interval=180):
+def status_loop(interval=180):  # 테스트용 3분 주기
     while True:
         time.sleep(interval)
         send(f"⏱ 감시 상태: 감시 {len(watchlist)}종목 / 보유 {len(bought)}종목")
         now = time.time()
+
+        # 📉 보유 종목 수익률 알림 (기존 유지)
         for t, entry in bought.items():
             df = get_data(t)
             if df is None or len(df) < 2: continue
@@ -129,9 +131,24 @@ def status_loop(interval=180):
                 send(f"📉 {name} {pnl:+.2f}% / {dur:.0f}분")
                 alerted[t] = now
 
+        # 📊 감시 중인 종목 상승률 추가
+        messages = []
+        for t in watchlist:
+            df = get_data(t)
+            if df is None or len(df) < 2: continue
+            cur = df.iloc[-1]
+            prev = df.iloc[-2]
+            name = t.replace("KRW-", "")
+            change = ((cur['close'] - prev['close']) / prev['close']) * 100
+            messages.append(f"{name}: {change:+.2f}%")
+
+        if messages:
+            send("📊 오늘 상승률\n" + "\n".join(messages))
+
 # 🚀 실행
 if __name__ == "__main__":
     send("📡 실시간 D-day 감시 시스템 시작")
     threading.Thread(target=status_loop, daemon=True).start()
     monitor_loop()
+
 
