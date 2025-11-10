@@ -112,7 +112,7 @@ def monitor_loop(interval=120):
         ws.close()
 
 # ⏱ 상태 알림 루프
-def status_loop(interval=180):  # 3분 주기
+def status_loop(interval=180):  # 알림 주기는 나중에 조정 가능
     while True:
         time.sleep(interval)
         send(f"⏱ 감시 상태: 감시 {len(watchlist)}종목 / 보유 {len(bought)}종목")
@@ -131,7 +131,7 @@ def status_loop(interval=180):  # 3분 주기
                 send(f"📉 {name} {pnl:+.2f}% / {dur:.0f}분")
                 alerted[t] = now
 
-        # 📊 감시 종목 정보 수집
+        # 📊 감시 종목 정보 수집 (실시간 현재가 반영)
         rows = []
         for t in watchlist:
             df = get_data(t)
@@ -141,19 +141,19 @@ def status_loop(interval=180):  # 3분 주기
             name = t.replace("KRW-", "")
             bd = cur.get('BBD', None)
             ma = cur.get('MA7', None)
-            price = cur['close']
-            change = ((price - prev['close']) / prev['close']) * 100
-            if pd.isna(bd) or pd.isna(ma): continue
-            rows.append((bd, ma, price, name, change))
+            p = pyupbit.get_current_price(t)
+            if p is None or pd.isna(bd) or pd.isna(ma): continue
+            change = ((p - prev['close']) / prev['close']) * 100
+            rows.append((bd, ma, p, name, change))
 
         # 📊 상승률 기준으로 종목 정렬
         rows.sort(key=lambda x: -x[4])  # x[4] = 상승률
 
-        # 📊 메시지 구성: 각 종목마다 B/M/P 값 큰 순서대로 나열
+        # 📊 메시지 구성: B/M/P 값 큰 순서대로 나열
         if rows:
             msg = "📊 감시 종목 정렬\n"
-            for bd, ma, price, name, change in rows:
-                values = {'B': bd, 'M': ma, 'P': price}
+            for bd, ma, p, name, change in rows:
+                values = {'B': bd, 'M': ma, 'P': p}
                 sorted_items = sorted(values.items(), key=lambda x: -x[1])  # 큰 값부터
                 parts = [f"{k} {int(v):,}" for k, v in sorted_items]
                 msg += f"{name}: {' '.join(parts)} R{change:+.2f}%\n"
@@ -164,6 +164,7 @@ if __name__ == "__main__":
     send("📡 실시간 D-day 감시 시스템 시작")
     threading.Thread(target=status_loop, daemon=True).start()
     monitor_loop()
+
 
 
 
