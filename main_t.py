@@ -20,8 +20,7 @@ MAX_CACHE = 300
 TTL = 10800  # 3시간
 
 # 🎯 전략 상태
-yesterday = set()
-today = set()
+watchlist = set()
 bought = {}
 alerted = {}
 ALERT_COOLDOWN = 3600  # 1시간
@@ -54,8 +53,8 @@ def get_data(ticker):
     except:
         return None
 
-# 🔍 어제 조건 종목
-def find_yesterday():
+# 🔍 감시 대상 종목 선정 (어제 종가 기준)
+def build_watchlist():
     result = set()
     for t in pyupbit.get_tickers(fiat="KRW"):
         df = get_data(t)
@@ -71,17 +70,13 @@ def find_yesterday():
 
 # ⚡ 실시간 감시
 def on_message(ws, msg):
-    global yesterday, today, bought
     data = json.loads(msg)
     t, p = data.get('code'), data.get('trade_price')
     df = get_data(t)
     if df is None or len(df) < 125: return
     cur = df.iloc[-1]
 
-    if p < cur['BBD'] and p < cur['MA7'] and 1 < p < 1_000_000:
-        today.add(t)
-
-    if t in yesterday | today and p > cur['BBD'] and p > cur['MA7'] and 1 < p < 1_000_000:
+    if p > cur['BBD'] and p > cur['MA7'] and 1 < p < 1_000_000:
         if t not in bought:
             name = t.replace("KRW-", "")
             change = ((p - cur['open']) / cur['open']) * 100 if cur['open'] > 0 else 0
@@ -89,17 +84,15 @@ def on_message(ws, msg):
             bought[t] = {'price': p, 'time': time.time()}
 
 def on_open(ws):
-    tickers = pyupbit.get_tickers(fiat="KRW")
-    ws.send(json.dumps([{"ticket": "breakout"}, {"type": "trade", "codes": tickers}]))
+    ws.send(json.dumps([{"ticket": "watch"}, {"type": "trade", "codes": list(watchlist)}]))
 
 # 🔁 감시 루프
 def monitor_loop(interval=120):
-    global yesterday, today, bought
+    global watchlist, bought
     last_day = None
     while True:
         now = time.localtime()
         if now.tm_hour >= 9 and now.tm_mday != last_day:
-            # ✅ 다음날 MA7 기준 종결
             for t, entry in list(bought.items()):
                 df = get_data(t)
                 if df is None or len(df) < 2: continue
@@ -111,19 +104,18 @@ def monitor_loop(interval=120):
                     del bought[t]
             last_day = now.tm_mday
 
-        yesterday = find_yesterday()
-        today = set()
+        watchlist = build_watchlist()
         ws = websocket.WebSocketApp("wss://api.upbit.com/websocket/v1",
                                     on_message=on_message, on_open=on_open)
         threading.Thread(target=ws.run_forever).start()
         time.sleep(interval)
         ws.close()
 
-# ⏱ 상태 알림 루프 (종목별 1시간 쿨타임)
-def status_loop(interval=3600):
+# ⏱ 상태 알림 루프
+def status_loop(interval=180):
     while True:
         time.sleep(interval)
-        send(f"⏱ 감시 상태: 어제 {len(yesterday)}종목 / 오늘 {len(today)}종목")
+        send(f"⏱ 감시 상태: 감시 {len(watchlist)}종목 / 보유 {len(bought)}종목")
         now = time.time()
         for t, entry in bought.items():
             df = get_data(t)
