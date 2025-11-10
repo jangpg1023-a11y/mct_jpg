@@ -88,16 +88,17 @@ def send_status():
         p = pyupbit.get_current_price(t)
         if p is None or pd.isna(bd) or pd.isna(ma): continue
         change = ((p - prev['close']) / prev['close']) * 100
-        rows.append((t, bd, ma, p, name, change))
+        prev_close = prev['close']
+        rows.append((t, bd, ma, p, name, change, prev_close))
 
     msg = f"📊 감시 종목\n"
     for t, _, _, _, name, change in rows:
         flag = " 🟢" if green_flag.get(t, False) else ""
         msg += f"{name}: {change:+.2f}%{flag}\n"
 
-    fallen = [(name, change) for t, bd, ma, p, name, change in rows if p < bd and p < ma]
+    fallen = [(name, change) for t, bd, ma, p, name, change, prev_close in rows if prev_close > bd and prev_close > ma and p < bd and p < ma]
     if fallen:
-        msg += "\n📉 오늘 하락\n"
+        msg += "\n📉 하락 전환\n"
         for name, change in fallen:
             msg += f"{name}: {change:+.2f}%\n"
 
@@ -160,5 +161,6 @@ if __name__ == "__main__":
     threading.Thread(target=update_watchlist_loop, daemon=True).start()
     threading.Thread(target=status_loop, daemon=True).start()
     monitor_loop()
+
 
 
