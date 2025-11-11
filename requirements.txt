@@ -1,6 +1,5 @@
 flask
 pyupbit
-websocket-client
 requests
 beautifulsoup4
 pandas
