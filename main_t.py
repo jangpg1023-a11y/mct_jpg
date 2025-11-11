@@ -126,6 +126,7 @@ def scan_market():
 # 📬 상태 메시지 전송
 def send_status():
     msg = "📊 감시 종목\n"
+    watch_lines = []
     for t in watchlist:
         df = get_data(t)
         if df is None or len(df) < 2: continue
@@ -138,9 +139,14 @@ def send_status():
         if p is None or pd.isna(bd) or pd.isna(ma): continue
         change = ((p - prev['close']) / prev['close']) * 100
         flag = " 🟢" if green_flag.get(t, False) else ""
-        msg += f"{name}: {format_price(p)}원 {change:+.2f}%{flag}\n"
+        watch_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}%{flag}"))
+
+    # 내림차순 정렬 후 메시지 추가
+    for _, line in sorted(watch_lines, key=lambda x: x[0], reverse=True):
+        msg += line + "\n"
 
     msg += "\n📌 지지 종목\n"
+    support_lines = []
     for t in support_candidates:
         df = get_data(t)
         if df is None or len(df) < 10: continue
@@ -156,9 +162,8 @@ def send_status():
             if abs(i) >= len(df): continue
             cur = df.iloc[i]
             prev = df.iloc[i - 1]
-            if any(pd.isna([cur['BBD'], cur['MA7'], prev['BBD'], prev['MA7']])): continue
+            if pd.isna([cur['BBD'], cur['MA7'], prev['BBD'], prev['MA7']]).any(): continue
     
-            # 진짜 돌파 조건: 전일 아래 → 당일 위
             if prev['close'] < prev['BBD'] and prev['close'] < prev['MA7']:
                 if cur['close'] > cur['BBD'] and cur['close'] > cur['MA7']:
                     breakout_close = cur['close']
@@ -173,11 +178,14 @@ def send_status():
         change = ((p - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
         flag = " 🟢" if green_flag.get(t, False) else ""
     
-        # 지지 조건: 돌파 종가보다 낮고 MA7보다 높고 D+7 이내
         if (p < breakout_close and p > ma7_today and days_since <= 7) or green_flag.get(t, False):
-            msg += f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}\n"
+            support_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}"))
+
+    for _, line in sorted(support_lines, key=lambda x: x[0], reverse=True):
+        msg += line + "\n"
 
     msg += "\n📉 전환 종목\n"
+    reversal_lines = []
     for t in reversal_candidates:
         df = get_data(t)
         if df is None or len(df) < 2: continue
@@ -194,7 +202,10 @@ def send_status():
         if (prev['close'] > bd_prev or prev['close'] > ma_prev) and (p < bd_cur and p < ma_cur):
             change = ((p - prev['close']) / prev['close']) * 100
             flag = " 🟢" if green_flag.get(t, False) else ""
-            msg += f"{name}: {format_price(p)}원 {change:+.2f}%{flag}\n"
+            reversal_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}%{flag}"))
+
+    for _, line in sorted(reversal_lines, key=lambda x: x[0], reverse=True):
+        msg += line + "\n"
 
     send(msg.strip())
 
@@ -290,5 +301,6 @@ if __name__ == '__main__':
     time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
 
 
