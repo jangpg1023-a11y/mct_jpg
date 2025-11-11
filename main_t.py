@@ -48,10 +48,9 @@ def get_data(ticker):
             return None
         df['MA7'] = df['close'].rolling(7).mean()
         df['MA120'] = df['close'].rolling(120).mean()
-        std = df['close'].rolling(20).std()
-        df['MA20'] = df['close'].rolling(20).mean()
-        df['BBU'] = df['MA20'] + 2 * std
-        df['BBD'] = df['MA20'] - 2 * std
+        std = df['close'].rolling(120).std()
+        df['BBU'] = df['MA120'] + 2 * std
+        df['BBD'] = df['MA120'] - 2 * std
         ohlcv_cache[ticker] = {'df': df, 'time': now}
         if len(ohlcv_cache) > MAX_CACHE:
             ohlcv_cache.popitem(last=False)
@@ -187,3 +186,4 @@ if __name__ == '__main__':
     time.sleep(5)  # 캐시 준비 시간 확보
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
