@@ -1,40 +1,41 @@
-# 📦 모듈 임포트
 import os, time, threading, requests, pyupbit
 import pandas as pd
 from collections import OrderedDict
 from flask import Flask
 from threading import Thread
 
+# 🌐 Flask keep-alive
 app = Flask('')
-
 @app.route('/')
 def home():
     return "I'm alive!"
+def run(): app.run(host='0.0.0.0', port=8080)
+def keep_alive(): Thread(target=run).start()
 
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# 🔐 환경변수 설정
+# 🔐 환경변수
 BOT_TOKEN = os.environ['BOT_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
-# 🧠 캐시 및 상태 변수
+# 🧠 상태 변수
 ohlcv_cache = OrderedDict()
 MAX_CACHE = 300
-TTL = 3600  # 1시간
+TTL = 3600
 watchlist = set()
+support_candidates = set()
+reversal_candidates = set()
 green_flag = {}
 
-# 📤 텔레그램 메시지 전송 함수
+# 📤 텔레그램 메시지
 def send(msg):
-    requests.post(TELEGRAM_URL, data={"chat_id": CHAT_ID, "text": msg})
+    try:
+        res = requests.post(TELEGRAM_URL, data={"chat_id": CHAT_ID, "text": msg})
+        if res.status_code != 200:
+            print("텔레그램 전송 실패:", res.text)
+    except Exception as e:
+        print("텔레그램 예외:", e)
 
-# 📐 호가 단위 계산 및 가격 포맷
+# 📐 호가 단위 및 포맷
 def get_tick_size(price):
     if price < 1: return 0.0001
     elif price < 10: return 0.001
@@ -49,7 +50,7 @@ def format_price(price):
     tick = get_tick_size(price)
     return f"{round(price / tick) * tick:.{str(tick)[::-1].find('.')}f}"
 
-# 📊 데이터 가져오기 및 캐싱
+# 📊 데이터 가져오기
 def get_data(ticker):
     now = time.time()
     if ticker in ohlcv_cache and now - ohlcv_cache[ticker]['time'] < TTL:
@@ -70,133 +71,154 @@ def get_data(ticker):
     except:
         return None
 
-# 🔍 감시 종목 선정
-def update_watchlist():
-    tickers = pyupbit.get_tickers(fiat="KRW")
-    new_watchlist = set()
-    for t in tickers:
-        price = pyupbit.get_current_price(t)
-        if price is None or price < 1 or price > 1000000:
-            continue
-        df = get_data(t)
-        if df is None or len(df) < 2:
-            continue
-        cur = df.iloc[-1]
-        prev = df.iloc[-2]
-        bd = cur.get('BBD', None)
-        ma = cur.get('MA7', None)
-        if pd.isna(bd) or pd.isna(ma):
-            continue
-        if prev['close'] < bd and prev['close'] < ma:
-            new_watchlist.add(t)
-    global watchlist
-    watchlist = new_watchlist
+# 🔍 전체 시장 스캔
+def scan_market():
+    global watchlist, support_candidates, reversal_candidates
+    watchlist.clear()
+    support_candidates.clear()
+    reversal_candidates.clear()
 
-# 📬 요약 메시지 전송
-def send_status():
-    rows = []
-    for t in watchlist:
+    tickers = pyupbit.get_tickers(fiat="KRW")
+    for t in tickers:
         df = get_data(t)
         if df is None or len(df) < 8: continue
         cur = df.iloc[-1]
         prev = df.iloc[-2]
-        name = t.replace("KRW-", "")
-        bd = cur.get('BBD', None)
-        ma = cur.get('MA7', None)
+        bd = cur.get('BBD')
+        ma = cur.get('MA7')
         p = pyupbit.get_current_price(t)
         if p is None or pd.isna(bd) or pd.isna(ma): continue
-        change = ((p - prev['close']) / prev['close']) * 100
-        prev_close = prev['close']
-        rows.append((t, bd, ma, p, name, change, prev_close, df))
 
-    msg = f"📊 감시 종목\n"
-    for t, _, _, p, name, change, _, _ in rows:
+        if prev['close'] < bd and prev['close'] < ma:
+            watchlist.add(t)
+
+        if prev['close'] > bd and prev['close'] > ma and p < bd and p < ma:
+            reversal_candidates.add(t)
+
+        for i in range(-8, -1):
+            row = df.iloc[i]
+            if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
+            if row['close'] > row['BBD'] and row['close'] > row['MA7']:
+                breakout_close = row['close']
+                if p < breakout_close and p > ma:
+                    support_candidates.add(t)
+                break
+
+# 📬 상태 메시지 전송
+def send_status():
+    msg = "📊 감시 종목\n"
+    for t in watchlist:
+        df = get_data(t)
+        if df is None or len(df) < 2: continue
+        cur = df.iloc[-1]
+        prev = df.iloc[-2]
+        bd = cur.get('BBD')
+        ma = cur.get('MA7')
+        p = pyupbit.get_current_price(t)
+        name = t.replace("KRW-", "")
+        if p is None or pd.isna(bd) or pd.isna(ma): continue
+        change = ((p - prev['close']) / prev['close']) * 100
         flag = " 🟢" if green_flag.get(t, False) else ""
         msg += f"{name}: {format_price(p)}원 {change:+.2f}%{flag}\n"
 
     msg += "\n📌 지지 종목\n"
-    for t, _, _, p, name, change, _, df in rows:
+    for t in support_candidates:
+        df = get_data(t)
+        if df is None or len(df) < 8: continue
+        p = pyupbit.get_current_price(t)
+        name = t.replace("KRW-", "")
+        if p is None: continue
         for i in range(-8, -1):
             row = df.iloc[i]
-            if pd.isna(row['BBD']) or pd.isna(row['MA7']):
-                continue
+            if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
             if row['close'] > row['BBD'] and row['close'] > row['MA7']:
                 breakout_close = row['close']
                 ma7_today = df.iloc[-1]['MA7']
                 if pd.isna(ma7_today): continue
                 if p < breakout_close and p > ma7_today:
                     days_since = len(df) - (i + 1)
+                    change = ((p - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
                     msg += f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since})\n"
                     break
 
     msg += "\n📉 전환 종목\n"
-    for t, bd, ma, p, name, change, prev_close, _ in rows:
-        if prev_close > bd and prev_close > ma and p < bd and p < ma:
-            msg += f"{name}: {change:+.2f}%\n"
+    for t in reversal_candidates:
+        df = get_data(t)
+        if df is None or len(df) < 2: continue
+        cur = df.iloc[-1]
+        prev = df.iloc[-2]
+        bd = cur.get('BBD')
+        ma = cur.get('MA7')
+        p = pyupbit.get_current_price(t)
+        name = t.replace("KRW-", "")
+        if p is None or pd.isna(bd) or pd.isna(ma): continue
+        change = ((p - prev['close']) / prev['close']) * 100
+        msg += f"{name}: {format_price(p)}원 {change:+.2f}%\n"
 
     send(msg.strip())
 
-# 🔁 실시간 반등 감시 루프
+# 🔁 실시간 감시 루프
 def polling_loop():
     breakout_cache = {}
     while True:
-        for code in watchlist:
+        for code in watchlist.union(support_candidates):
             df = get_data(code)
             if df is None or len(df) < 8: continue
             cur = df.iloc[-1]
-            bd = cur.get('BBD', None)
-            ma = cur.get('MA7', None)
+            bd = cur.get('BBD')
+            ma = cur.get('MA7')
             if pd.isna(bd) or pd.isna(ma): continue
             price = pyupbit.get_current_price(code)
             if price is None: continue
 
-            if code not in green_flag:
-                green_flag[code] = False
-
-            if price > bd and price > ma:
-                if not green_flag[code]:
-                    send(f"🚀 돌파: {code.replace('KRW-', '')} {format_price(price)}원")
-                    green_flag[code] = True
-            else:
-                if green_flag[code]:
+            if code in watchlist:
+                if code not in green_flag:
                     green_flag[code] = False
+                if price > bd and price > ma:
+                    if not green_flag[code]:
+                        send(f"🚀 돌파: {code.replace('KRW-', '')} {format_price(price)}원")
+                        green_flag[code] = True
+                else:
+                    if green_flag[code]:
+                        green_flag[code] = False
 
-            for i in range(-8, -1):
-                row = df.iloc[i]
-                if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
-                if row['close'] > row['BBD'] and row['close'] > row['MA7']:
-                    breakout_close = row['close']
-                    ma7_today = df.iloc[-1]['MA7']
-                    if pd.isna(ma7_today): continue
-                    if price < breakout_close and price > ma7_today:
-                        breakout_cache[code] = {'price': breakout_close, 'index': i}
-                    break
+            if code in support_candidates:
+                for i in range(-8, -1):
+                    row = df.iloc[i]
+                    if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
+                    if row['close'] > row['BBD'] and row['close'] > row['MA7']:
+                        breakout_close = row['close']
+                        ma7_today = df.iloc[-1]['MA7']
+                        if pd.isna(ma7_today): continue
+                        if price < breakout_close and price > ma7_today:
+                            breakout_cache[code] = {'price': breakout_close, 'index': i}
+                        break
 
-            if code in breakout_cache:
-                breakout_price = breakout_cache[code]['price']
-                breakout_day_index = breakout_cache[code]['index']
-                days_since = len(df) - (breakout_day_index + 1)
-                if price > breakout_price:
-                    rate_now = ((price - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
-                    rate_vs_breakout = ((price - breakout_price) / breakout_price) * 100
-                    send(
-                        f"🔺 종가돌파: {code.replace('KRW-', '')} {format_price(price)}원 {rate_now:+.2f}% "
-                        f"(D+{days_since} 종가 {format_price(breakout_price)} {rate_vs_breakout:+.2f}%)"
-                    )
-                    del breakout_cache[code]
+                if code in breakout_cache:
+                    breakout_price = breakout_cache[code]['price']
+                    breakout_day_index = breakout_cache[code]['index']
+                    days_since = len(df) - (breakout_day_index + 1)
+                    if price > breakout_price:
+                        rate_now = ((price - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
+                        rate_vs_breakout = ((price - breakout_price) / breakout_price) * 100
+                        send(
+                            f"🔺 종가돌파: {code.replace('KRW-', '')} {format_price(price)}원 {rate_now:+.2f}% "
+                            f"(D+{days_since} 종가 {format_price(breakout_price)} {rate_vs_breakout:+.2f}%)"
+                        )
+                        del breakout_cache[code]
         time.sleep(3)
 
-# ⏱️ 30분마다 요약 알림 루프
+# ⏱️ 30분마다 시장 스캔 및 알림
 def status_loop():
     while True:
+        scan_market()
         send_status()
         time.sleep(1800)
 
-# 🧩 앱 실행
+# 🧩 실행부
 if __name__ == '__main__':
-    update_watchlist()
-    time.sleep(5)  # 캐시 준비 시간 확보
+    keep_alive()
+    scan_market()
+    time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
-
-
