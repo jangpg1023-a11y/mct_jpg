@@ -170,17 +170,27 @@ def send_status():
     msg += "\n📉 전환 종목\n"
     for t in reversal_candidates:
         df = get_data(t)
-        if df is None or len(df) < 2: continue
+        if df is None or len(df) < 2:
+            continue
+
         cur = df.iloc[-1]
         prev = df.iloc[-2]
-        bd = cur.get('BBD')
-        ma = cur.get('MA7')
+        bd_prev = prev.get('BBD')
+        ma_prev = prev.get('MA7')
+        bd_cur = cur.get('BBD')
+        ma_cur = cur.get('MA7')
         p = pyupbit.get_current_price(t)
         name = t.replace("KRW-", "")
-        if p is None or pd.isna(bd) or pd.isna(ma): continue
-        change = ((p - prev['close']) / prev['close']) * 100
-        msg += f"{name}: {format_price(p)}원 {change:+.2f}%\n"
+    
+        if p is None or pd.isna(bd_prev) or pd.isna(ma_prev) or pd.isna(bd_cur) or pd.isna(ma_cur):
+            continue
 
+        # 조건: 어제 종가가 BBD 또는 MA7 위에 있었고, 오늘 현재가는 BBD와 MA7 아래
+        if (prev['close'] > bd_prev or prev['close'] > ma_prev) and (p < bd_cur and p < ma_cur):
+            change = ((p - prev['close']) / prev['close']) * 100
+            flag = " 🟢" if green_flag.get(t, False) else ""
+            msg += f"{name}: {format_price(p)}원 {change:+.2f}%{flag}\n"
+    
     send(msg.strip())
 
 # 🔁 실시간 감시 루프
@@ -266,6 +276,7 @@ if __name__ == '__main__':
     time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
 
 
 
