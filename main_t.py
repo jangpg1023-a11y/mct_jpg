@@ -57,7 +57,6 @@ def format_price(price):
         print(f"format_price 오류: {e}")
         return str(price)
 
-
 # 📊 데이터 가져오기
 def get_data(ticker):
     now = time.time()
@@ -103,12 +102,15 @@ def scan_market():
         if prev['close'] > bd and prev['close'] > ma and p < bd and p < ma:
             reversal_candidates.add(t)
 
-        for i in range(-8, -1):
+        for i in range(-2, -9, -1):
             row = df.iloc[i]
             if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
             if row['close'] > row['BBD'] and row['close'] > row['MA7']:
                 breakout_close = row['close']
-                if p < breakout_close and p > ma:
+                breakout_date = df.index[i]
+                today = df.index[-1]
+                days_since = (today - breakout_date).days
+                if p < breakout_close and p > ma and days_since <= 7:
                     support_candidates.add(t)
                 break
 
@@ -132,47 +134,38 @@ def send_status():
     msg += "\n📌 지지 종목\n"
     for t in support_candidates:
         df = get_data(t)
-        if df is None or len(df) < 8:
-            continue
-
+        if df is None or len(df) < 8: continue
         p = pyupbit.get_current_price(t)
         name = t.replace("KRW-", "")
-        if p is None:
-            continue
-    
+        if p is None: continue
+
         breakout_close = None
         days_since = None
-    
-        # 과거 7일 내 돌파 기준 찾기
-        for i in range(-8, -1):
+
+        for i in range(-2, -9, -1):
             row = df.iloc[i]
-            if pd.isna(row['BBD']) or pd.isna(row['MA7']):
-                continue
+            if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
             if row['close'] > row['BBD'] and row['close'] > row['MA7']:
                 breakout_close = row['close']
-                days_since = len(df) - (i + 1)
+                breakout_date = df.index[i]
+                today = df.index[-1]
+                days_since = (today - breakout_date).days
                 break
-    
-        if breakout_close is None or days_since is None:
-            continue
 
+        if breakout_close is None or days_since is None: continue
         ma7_today = df.iloc[-1]['MA7']
-        if pd.isna(ma7_today):
-            continue
+        if pd.isna(ma7_today): continue
 
         change = ((p - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
         flag = " 🟢" if green_flag.get(t, False) else ""
 
-        # 돌파 7일 이내이거나 녹색불 켜진 종목만 표시
         if (p < breakout_close and p > ma7_today and days_since <= 7) or green_flag.get(t, False):
             msg += f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}\n"
 
     msg += "\n📉 전환 종목\n"
     for t in reversal_candidates:
         df = get_data(t)
-        if df is None or len(df) < 2:
-            continue
-
+        if df is None or len(df) < 2: continue
         cur = df.iloc[-1]
         prev = df.iloc[-2]
         bd_prev = prev.get('BBD')
@@ -181,16 +174,13 @@ def send_status():
         ma_cur = cur.get('MA7')
         p = pyupbit.get_current_price(t)
         name = t.replace("KRW-", "")
-    
-        if p is None or pd.isna(bd_prev) or pd.isna(ma_prev) or pd.isna(bd_cur) or pd.isna(ma_cur):
-            continue
+        if p is None or pd.isna(bd_prev) or pd.isna(ma_prev) or pd.isna(bd_cur) or pd.isna(ma_cur): continue
 
-        # 조건: 어제 종가가 BBD 또는 MA7 위에 있었고, 오늘 현재가는 BBD와 MA7 아래
         if (prev['close'] > bd_prev or prev['close'] > ma_prev) and (p < bd_cur and p < ma_cur):
             change = ((p - prev['close']) / prev['close']) * 100
             flag = " 🟢" if green_flag.get(t, False) else ""
             msg += f"{name}: {format_price(p)}원 {change:+.2f}%{flag}\n"
-    
+
     send(msg.strip())
 
 # 🔁 실시간 감시 루프
@@ -198,10 +188,7 @@ def polling_loop():
     breakout_cache = {}
     while True:
         for code in watchlist.union(support_candidates):
-            # 녹색불이 켜진 종목은 감시 대상에서 제외
-            if green_flag.get(code, False):
-                continue
-
+            if green_flag.get(code, False): continue
             df = get_data(code)
             if df is None or len(df) < 8: continue
             cur = df.iloc[-1]
@@ -211,7 +198,6 @@ def polling_loop():
             price = pyupbit.get_current_price(code)
             if price is None: continue
 
-            # 감시 종목 처리
             if code in watchlist:
                 if code not in green_flag:
                     green_flag[code] = False
@@ -219,37 +205,38 @@ def polling_loop():
                     send(f"🚀 돌파: {code.replace('KRW-', '')} {format_price(price)}원")
                     green_flag[code] = True
 
-            # 지지 종목 처리
             if code in support_candidates:
-                for i in range(-8, -1):
+                for i in range(-2, -9, -1):
                     row = df.iloc[i]
                     if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
                     if row['close'] > row['BBD'] and row['close'] > row['MA7']:
                         breakout_close = row['close']
+                        breakout_date = df.index[i]
+                        today = df.index[-1]
+                        days_since = (today - breakout_date).days
                         ma7_today = df.iloc[-1]['MA7']
                         if pd.isna(ma7_today): continue
-                        if price < breakout_close and price > ma7_today:
-                            breakout_cache[code] = {'price': breakout_close, 'index': i}
+                        if price < breakout_close and price > ma7_today and days_since <= 7:
+                            breakout_cache[code] = {'price': breakout_close, 'date': breakout_date}
                         break
 
                 if code in breakout_cache:
                     breakout_price = breakout_cache[code]['price']
-                    breakout_day_index = breakout_cache[code]['index']
-                    days_since = len(df) - (breakout_day_index + 1)
+                    breakout_date = breakout_cache[code]['date']
+                    today = df.index[-1]
+                    days_since = (today - breakout_date).days
                     if price > breakout_price:
                         rate_now = ((price - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
                         rate_vs_breakout = ((price - breakout_price) / breakout_price) * 100
                         send(
                             f"🔺 종가돌파: {code.replace('KRW-', '')} {format_price(price)}원 {rate_now:+.2f}% "
-                            f"(D+{days_since} 종가 {format_price(breakout_price)} {rate_vs_breakout:+.2f}%)"
+                            f"(D+{days_since} {format_price(breakout_price)} {rate_vs_breakout:+.2f}%)"
                         )
-                        green_flag[code] = True  # 돌파 후 녹색불 켜기
+                        green_flag[code] = True
                         del breakout_cache[code]
 
-        # 녹색불 꺼진 종목은 다시 감시 대상에 포함
         for code in list(green_flag):
-            if not green_flag[code]:
-                continue  # 이미 꺼진 상태면 감시 대상에 포함됨
+            if not green_flag[code]: continue
             price = pyupbit.get_current_price(code)
             df = get_data(code)
             if df is None or len(df) < 2: continue
@@ -258,7 +245,7 @@ def polling_loop():
             ma = cur.get('MA7')
             if pd.isna(bd) or pd.isna(ma): continue
             if price < bd or price < ma:
-                green_flag[code] = False  # 녹색불 꺼짐 → 다시 감시 가능
+                green_flag[code] = False
 
         time.sleep(3)
 
@@ -276,7 +263,3 @@ if __name__ == '__main__':
     time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
-
-
-
-
