@@ -49,16 +49,14 @@ def get_tick_size(price):
 def format_price(price):
     tick = get_tick_size(price)
     try:
-        # tick을 문자열로 변환 후 소수점 자릿수 계산
-        tick_str = f"{tick:.10f}".rstrip('0')  # 소수점 이하 최대 10자리 표현 후 0 제거
+        tick_str = f"{tick:.10f}".rstrip('0')
         precision = tick_str[::-1].find('.') if '.' in tick_str else 0
-
-        # 틱 단위 반올림
         rounded = round(price / tick) * tick
         return f"{rounded:.{precision}f}"
     except Exception as e:
         print(f"format_price 오류: {e}")
         return str(price)
+
 
 # 📊 데이터 가져오기
 def get_data(ticker):
@@ -134,23 +132,40 @@ def send_status():
     msg += "\n📌 지지 종목\n"
     for t in support_candidates:
         df = get_data(t)
-        if df is None or len(df) < 8: continue
+        if df is None or len(df) < 8:
+            continue
+
         p = pyupbit.get_current_price(t)
         name = t.replace("KRW-", "")
-        if p is None: continue
+        if p is None:
+            continue
+    
+        breakout_close = None
+        days_since = None
+    
+        # 과거 7일 내 돌파 기준 찾기
         for i in range(-8, -1):
             row = df.iloc[i]
-            if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
+            if pd.isna(row['BBD']) or pd.isna(row['MA7']):
+                continue
             if row['close'] > row['BBD'] and row['close'] > row['MA7']:
                 breakout_close = row['close']
-                ma7_today = df.iloc[-1]['MA7']
-                if pd.isna(ma7_today): continue
-                if p < breakout_close and p > ma7_today:
-                    days_since = len(df) - (i + 1)
-                    change = ((p - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
-                    flag = " 🟢" if green_flag.get(t, False) else ""
-                    msg += f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}\n"
-                    break
+                days_since = len(df) - (i + 1)
+                break
+    
+        if breakout_close is None or days_since is None:
+            continue
+
+        ma7_today = df.iloc[-1]['MA7']
+        if pd.isna(ma7_today):
+            continue
+
+        change = ((p - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
+        flag = " 🟢" if green_flag.get(t, False) else ""
+
+        # 돌파 7일 이내이거나 녹색불 켜진 종목만 표시
+        if (p < breakout_close and p > ma7_today and days_since <= 7) or green_flag.get(t, False):
+            msg += f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}\n"
 
     msg += "\n📉 전환 종목\n"
     for t in reversal_candidates:
@@ -251,5 +266,6 @@ if __name__ == '__main__':
     time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
 
 
