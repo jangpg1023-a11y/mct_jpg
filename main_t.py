@@ -134,31 +134,37 @@ def send_status():
     msg += "\n📌 지지 종목\n"
     for t in support_candidates:
         df = get_data(t)
-        if df is None or len(df) < 8: continue
+        if df is None or len(df) < 10: continue
         p = pyupbit.get_current_price(t)
         name = t.replace("KRW-", "")
         if p is None: continue
 
         breakout_close = None
+        breakout_date = None
         days_since = None
 
-        for i in range(-2, -9, -1):
-            row = df.iloc[i]
-            if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
-            if row['close'] > row['BBD'] and row['close'] > row['MA7']:
-                breakout_close = row['close']
-                breakout_date = df.index[i]
-                today = df.index[-1]
-                days_since = (today - breakout_date).days
-                break
-
+        for i in range(-2, -10, -1):  # 최근 7일 역순 탐색
+            if abs(i) >= len(df): continue
+            cur = df.iloc[i]
+            prev = df.iloc[i - 1]
+            if any(pd.isna([cur['BBD'], cur['MA7'], prev['BBD'], prev['MA7']])): continue
+    
+            # 진짜 돌파 조건: 전일 아래 → 당일 위
+            if prev['close'] < prev['BBD'] and prev['close'] < prev['MA7']:
+                if cur['close'] > cur['BBD'] and cur['close'] > cur['MA7']:
+                    breakout_close = cur['close']
+                    breakout_date = df.index[i]
+                    days_since = (df.index[-1] - breakout_date).days
+                    break
+    
         if breakout_close is None or days_since is None: continue
         ma7_today = df.iloc[-1]['MA7']
         if pd.isna(ma7_today): continue
-
+    
         change = ((p - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
         flag = " 🟢" if green_flag.get(t, False) else ""
-
+    
+        # 지지 조건: 돌파 종가보다 낮고 MA7보다 높고 D+7 이내
         if (p < breakout_close and p > ma7_today and days_since <= 7) or green_flag.get(t, False):
             msg += f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}\n"
 
@@ -263,3 +269,4 @@ if __name__ == '__main__':
     time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
