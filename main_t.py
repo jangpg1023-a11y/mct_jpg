@@ -1,10 +1,22 @@
 # 📦 모듈 임포트
 import os, time, threading, requests, pyupbit
 import pandas as pd
-from keep_alive import keep_alive
 from collections import OrderedDict
+from flask import Flask
+from threading import Thread
 
-keep_alive()
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I'm alive!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 
 # 🔐 환경변수 설정
 BOT_TOKEN = os.environ['BOT_TOKEN']
@@ -14,7 +26,7 @@ TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 # 🧠 캐시 및 상태 변수
 ohlcv_cache = OrderedDict()
 MAX_CACHE = 300
-TTL = 600  # 10분
+TTL = 3600  # 1시간
 watchlist = set()
 green_flag = {}
 
@@ -186,4 +198,5 @@ if __name__ == '__main__':
     time.sleep(5)  # 캐시 준비 시간 확보
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
 
