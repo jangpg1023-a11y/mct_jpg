@@ -148,7 +148,8 @@ def send_status():
                 if p < breakout_close and p > ma7_today:
                     days_since = len(df) - (i + 1)
                     change = ((p - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
-                    msg += f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since})\n"
+                    flag = " 🟢" if green_flag.get(t, False) else ""
+                    msg += f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}\n"
                     break
 
     msg += "\n📉 전환 종목\n"
@@ -172,6 +173,10 @@ def polling_loop():
     breakout_cache = {}
     while True:
         for code in watchlist.union(support_candidates):
+            # 녹색불이 켜진 종목은 감시 대상에서 제외
+            if green_flag.get(code, False):
+                continue
+
             df = get_data(code)
             if df is None or len(df) < 8: continue
             cur = df.iloc[-1]
@@ -181,17 +186,15 @@ def polling_loop():
             price = pyupbit.get_current_price(code)
             if price is None: continue
 
+            # 감시 종목 처리
             if code in watchlist:
                 if code not in green_flag:
                     green_flag[code] = False
                 if price > bd and price > ma:
-                    if not green_flag[code]:
-                        send(f"🚀 돌파: {code.replace('KRW-', '')} {format_price(price)}원")
-                        green_flag[code] = True
-                else:
-                    if green_flag[code]:
-                        green_flag[code] = False
+                    send(f"🚀 돌파: {code.replace('KRW-', '')} {format_price(price)}원")
+                    green_flag[code] = True
 
+            # 지지 종목 처리
             if code in support_candidates:
                 for i in range(-8, -1):
                     row = df.iloc[i]
@@ -215,7 +218,23 @@ def polling_loop():
                             f"🔺 종가돌파: {code.replace('KRW-', '')} {format_price(price)}원 {rate_now:+.2f}% "
                             f"(D+{days_since} 종가 {format_price(breakout_price)} {rate_vs_breakout:+.2f}%)"
                         )
+                        green_flag[code] = True  # 돌파 후 녹색불 켜기
                         del breakout_cache[code]
+
+        # 녹색불 꺼진 종목은 다시 감시 대상에 포함
+        for code in list(green_flag):
+            if not green_flag[code]:
+                continue  # 이미 꺼진 상태면 감시 대상에 포함됨
+            price = pyupbit.get_current_price(code)
+            df = get_data(code)
+            if df is None or len(df) < 2: continue
+            cur = df.iloc[-1]
+            bd = cur.get('BBD')
+            ma = cur.get('MA7')
+            if pd.isna(bd) or pd.isna(ma): continue
+            if price < bd or price < ma:
+                green_flag[code] = False  # 녹색불 꺼짐 → 다시 감시 가능
+
         time.sleep(3)
 
 # ⏱️ 30분마다 시장 스캔 및 알림
@@ -232,4 +251,5 @@ if __name__ == '__main__':
     time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
 
