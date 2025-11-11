@@ -76,7 +76,7 @@ def update_watchlist():
     for t in tickers:
         price = pyupbit.get_current_price(t)
         if price is None or price < 1 or price > 1000000:
-            continue  # 가격 범위 필터
+            continue
 
         df = get_data(t)
         if df is None or len(df) < 2:
@@ -195,6 +195,12 @@ def polling_loop():
 
         time.sleep(3)
 
+# 1시간마다 요약 알림 루프
+def status_loop():
+    while True:
+        send_status()
+        time.sleep(3600)
+
 # Flask routes
 @app.route('/')
 def home():
@@ -212,7 +218,5 @@ def update():
 # 앱 실행
 if __name__ == '__main__':
     update_watchlist()
-    threading.Thread(target=polling_loop).start()
-    threading.Thread(target=send_status).start()
-    app.run(host='0.0.0.0', port=5000)
-
+    time.sleep(5)  # 캐시 준비 시간 확보
+    threading.Thread(target
