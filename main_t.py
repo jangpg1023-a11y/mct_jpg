@@ -1,7 +1,6 @@
 import os, time, threading, json, requests, pyupbit
 import pandas as pd
 from collections import OrderedDict
-from websocket import WebSocketApp
 from flask import Flask
 
 # 슬립 방지용 서버
@@ -9,7 +8,6 @@ app = Flask('')
 @app.route('/')
 def home(): return "I'm alive!"
 threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
-
 
 # 환경변수
 BOT_TOKEN = os.environ['BOT_TOKEN']
@@ -96,11 +94,10 @@ def send_status():
         flag = " 🟢" if green_flag.get(t, False) else ""
         msg += f"{name}: {change:+.2f}%{flag}\n"
 
+    msg += "\n📉 하락 전환\n"
     fallen = [(name, change) for t, bd, ma, p, name, change, prev_close in rows if prev_close > bd and prev_close > ma and p < bd and p < ma]
-    if fallen:
-        msg += "\n📉 하락 전환\n"
-        for name, change in fallen:
-            msg += f"{name}: {change:+.2f}%\n"
+    for name, change in fallen:
+        msg += f"{name}: {change:+.2f}%\n"
 
     send(msg.strip())
 
@@ -110,58 +107,41 @@ def status_loop():
         time.sleep(3600)
         send_status()
 
-# 실시간 반등 감시
-def handle_message(ws, message):
-    try:
-        data = json.loads(message)
-        code = data['code']
-        price = data['trade_price']
-        if code not in watchlist: return
-        df = get_data(code)
-        if df is None or len(df) < 2: return
-        cur = df.iloc[-1]
-        bd = cur.get('BBD', None)
-        ma = cur.get('MA7', None)
-        if pd.isna(bd) or pd.isna(ma): return
+# 실시간 반등 감시 (Polling 방식)
+def polling_loop():
+    while True:
+        for code in watchlist:
+            df = get_data(code)
+            if df is None or len(df) < 2:
+                continue
+            cur = df.iloc[-1]
+            bd = cur.get('BBD', None)
+            ma = cur.get('MA7', None)
+            if pd.isna(bd) or pd.isna(ma):
+                continue
 
-        if code not in green_flag:
-            green_flag[code] = False
+            price = pyupbit.get_current_price(code)
+            if price is None:
+                continue
 
-        if price > bd and price > ma:
-            if not green_flag[code]:
-                send(f"🚀 돌파: {code.replace('KRW-', '')} 가격 {price:.2f}원 (BBD/MA7 돌파)")
-                green_flag[code] = True
-        else:
-            if green_flag[code]:
+            if code not in green_flag:
                 green_flag[code] = False
-    except Exception as e:
-        print(f"[웹소켓 오류] {e}")
 
-def monitor_loop():
-    def run_socket():
-        tickers = pyupbit.get_tickers(fiat="KRW")
-        codes = [f'"{t}"' for t in tickers]
-        payload = {
-            "type": "ticker",
-            "codes": codes
-        }
-        ws = WebSocketApp("wss://api.upbit.com/websocket/v1",
-                          on_message=handle_message,
-                          on_error=lambda ws, err: print(f"[WS 오류] {err}"),
-                          on_close=lambda ws: print("[WS 종료]"),
-                          on_open=lambda ws: ws.send(json.dumps(payload)))
-        ws.run_forever()
-    threading.Thread(target=run_socket, daemon=True).start()
+            if price > bd and price > ma:
+                if not green_flag[code]:
+                    send(f"🚀 돌파: {code.replace('KRW-', '')} 가격 {price:.2f}원 (BBD/MA7 돌파)")
+                    green_flag[code] = True
+            else:
+                if green_flag[code]:
+                    green_flag[code] = False
+
+        time.sleep(3)  # 전체 루프 후 3초 대기
 
 # 실행
 if __name__ == "__main__":
     send("📡 실시간 BBD 돌파감시")
-    update_watchlist()  # 시작 시 감시 종목 선정
-    send_status()       # 시작 시 상태 요약 알림
+    update_watchlist()
+    send_status()
     threading.Thread(target=update_watchlist_loop, daemon=True).start()
     threading.Thread(target=status_loop, daemon=True).start()
-    monitor_loop()
-
-
-
-
+    threading.Thread(target=polling_loop, daemon=True).start()
