@@ -48,7 +48,17 @@ def get_tick_size(price):
 
 def format_price(price):
     tick = get_tick_size(price)
-    return f"{round(price / tick) * tick:.{str(tick)[::-1].find('.')}f}"
+    try:
+        # tick을 문자열로 변환 후 소수점 자릿수 계산
+        tick_str = f"{tick:.10f}".rstrip('0')  # 소수점 이하 최대 10자리 표현 후 0 제거
+        precision = tick_str[::-1].find('.') if '.' in tick_str else 0
+
+        # 틱 단위 반올림
+        rounded = round(price / tick) * tick
+        return f"{rounded:.{precision}f}"
+    except Exception as e:
+        print(f"format_price 오류: {e}")
+        return str(price)
 
 # 📊 데이터 가져오기
 def get_data(ticker):
@@ -222,3 +232,4 @@ if __name__ == '__main__':
     time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
