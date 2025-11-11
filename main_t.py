@@ -37,14 +37,23 @@ def send(msg):
 
 # 📐 호가 단위 및 포맷
 def get_tick_size(price):
-    if price < 1: return 0.0001
-    elif price < 10: return 0.001
-    elif price < 100: return 0.01
-    elif price < 1000: return 0.1
-    elif price < 10000: return 1
-    elif price < 100000: return 5
-    elif price < 500000: return 10
-    else: return 50
+    if price >= 2_000_000: return 1000
+    elif price >= 1_000_000: return 1000
+    elif price >= 500_000: return 500
+    elif price >= 100_000: return 100
+    elif price >= 50_000: return 50
+    elif price >= 10_000: return 10
+    elif price >= 5_000: return 5
+    elif price >= 1_000: return 1
+    elif price >= 100: return 1
+    elif price >= 10: return 0.1
+    elif price >= 1: return 0.01
+    elif price >= 0.1: return 0.001
+    elif price >= 0.01: return 0.0001
+    elif price >= 0.001: return 0.00001
+    elif price >= 0.0001: return 0.000001
+    elif price >= 0.00001: return 0.0000001
+    else: return 0.00000001
 
 def format_price(price):
     tick = get_tick_size(price)
@@ -212,34 +221,46 @@ def polling_loop():
                     green_flag[code] = True
 
             if code in support_candidates:
-                for i in range(-2, -9, -1):
-                    row = df.iloc[i]
-                    if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
-                    if row['close'] > row['BBD'] and row['close'] > row['MA7']:
-                        breakout_close = row['close']
-                        breakout_date = df.index[i]
-                        today = df.index[-1]
-                        days_since = (today - breakout_date).days
-                        ma7_today = df.iloc[-1]['MA7']
-                        if pd.isna(ma7_today): continue
-                        if price < breakout_close and price > ma7_today and days_since <= 7:
-                            breakout_cache[code] = {'price': breakout_close, 'date': breakout_date}
-                        break
-
-                if code in breakout_cache:
-                    breakout_price = breakout_cache[code]['price']
-                    breakout_date = breakout_cache[code]['date']
-                    today = df.index[-1]
-                    days_since = (today - breakout_date).days
-                    if price > breakout_price:
-                        rate_now = ((price - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
-                        rate_vs_breakout = ((price - breakout_price) / breakout_price) * 100
-                        send(
-                            f"🔺 종가돌파: {code.replace('KRW-', '')} {format_price(price)}원 {rate_now:+.2f}% "
-                            f"(D+{days_since} {format_price(breakout_price)} {rate_vs_breakout:+.2f}%)"
-                        )
-                        green_flag[code] = True
-                        del breakout_cache[code]
+                for i in range(-2, -9, -1):  # 최근 7일 돌파 여부 확인
+                    if i - 1 < -len(df): break  # 인덱스 범위 초과 방지
+            
+                    prev = df.iloc[i - 1]
+                    cur = df.iloc[i]
+            
+                    if pd.isna(prev['BBD']) or pd.isna(prev['MA7']) or pd.isna(cur['BBD']) or pd.isna(cur['MA7']):
+                        continue
+            
+                    # 돌파 발생 조건: 전일은 아래, 당일은 위
+                    if prev['close'] < prev['BBD'] and prev['close'] < prev['MA7']:
+                        if cur['close'] > cur['BBD'] and cur['close'] > cur['MA7']:
+                            breakout_close = cur['close']
+                            breakout_date = df.index[i]
+                            today = df.index[-1]
+                            days_since = (today - breakout_date).days
+                            ma7_today = df.iloc[-1]['MA7']
+                            if pd.isna(ma7_today): continue
+            
+                            # 지지 조건은 그대로 유지
+                            if price < breakout_close and price > ma7_today and days_since <= 7:
+                                breakout_cache[code] = {'price': breakout_close, 'date': breakout_date}
+                            break
+            
+            if code in breakout_cache:
+                breakout_price = breakout_cache[code]['price']
+                breakout_date = breakout_cache[code]['date']
+                today = df.index[-1]
+                days_since = (today - breakout_date).days
+            
+                # 종가 재돌파 조건: 어제는 아래, 오늘은 위
+                if df.iloc[-2]['close'] < breakout_price and price > breakout_price and days_since <= 7:
+                    rate_now = ((price - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
+                    rate_vs_breakout = ((price - breakout_price) / breakout_price) * 100
+                    send(
+                        f"🔺 종가돌파: {code.replace('KRW-', '')} {format_price(price)}원 {rate_now:+.2f}% "
+                        f"(D+{days_since} {format_price(breakout_price)} {rate_vs_breakout:+.2f}%)"
+                    )
+                    green_flag[code] = True
+                    del breakout_cache[code]
 
         for code in list(green_flag):
             if not green_flag[code]: continue
@@ -269,4 +290,5 @@ if __name__ == '__main__':
     time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
 
