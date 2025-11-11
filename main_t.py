@@ -74,6 +74,10 @@ def update_watchlist():
     tickers = pyupbit.get_tickers(fiat="KRW")
     new_watchlist = set()
     for t in tickers:
+        price = pyupbit.get_current_price(t)
+        if price is None or price < 1 or price > 1000000:
+            continue  # 가격 범위 필터
+
         df = get_data(t)
         if df is None or len(df) < 2:
             continue
@@ -211,3 +215,4 @@ if __name__ == '__main__':
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=send_status).start()
     app.run(host='0.0.0.0', port=5000)
+
