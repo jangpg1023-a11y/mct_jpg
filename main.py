@@ -262,10 +262,11 @@ def send_past_summary():
 
 async def hourly_summary_loop():
     while True:
+        tickers = get_all_krw_tickers()
         summary_log[0] = []
         summary_log[1] = []
         summary_log[2] = []
-        for ticker in watchlist:
+        for ticker in tickers:
             price = pyupbit.get_current_price(ticker) or 0
             check_conditions(ticker, price, day_indexes=[0, 1, 2])
             await asyncio.sleep(0.5)
@@ -273,11 +274,10 @@ async def hourly_summary_loop():
         await asyncio.sleep(3600)  # 1시간 주기
 
 async def main():
-    global watchlist
-    watchlist = get_all_krw_tickers()
     send_message("📡 종목 감시 시작")
     await hourly_summary_loop()
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
