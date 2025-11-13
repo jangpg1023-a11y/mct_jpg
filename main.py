@@ -39,8 +39,8 @@ def get_usdkrw():
 
 def get_bybit_day_rates():
     try:
-        today_date = datetime.utcnow().date().strftime("%Y-%m-%d")
-        yesterday_date = (datetime.utcnow().date() - timedelta(days=1)).strftime("%Y-%m-%d")
+        today_date = datetime.now(timezone.utc).date().strftime("%Y-%m-%d")
+        yesterday_date = (datetime.now(timezone.utc).date() - timedelta(days=1)).strftime("%Y-%m-%d")
         url = "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=D&limit=10"
         res = requests.get(url)
         data = res.json()
@@ -51,7 +51,7 @@ def get_bybit_day_rates():
 
         for candle in ohlcv:
             ts = int(candle[0]) // 1000
-            candle_date = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+            candle_date = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
             if candle_date == today_date:
                 open_t = float(candle[1])
                 close_t = float(candle[4])
@@ -280,3 +280,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
