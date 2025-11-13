@@ -145,8 +145,10 @@ def calculate_indicators(df):
     return df
 
 def record_summary(day_index, ticker, condition_text, change_str, yesterday_str):
-    if day_index in summary_log:
-        summary_log[day_index].append(f"{ticker} | {condition_text} | {change_str} | {yesterday_str}")
+    tickers_in_log = [e.split(" | ")[0] for e in summary_log.get(day_index, [])]
+    if ticker not in tickers_in_log:
+        entry = f"{ticker} | {condition_text} | {change_str} | {yesterday_str}"
+        summary_log[day_index].append(entry)
 
 def check_conditions(ticker, price, day_indexes=[0]):
     df = get_ohlcv_cached(ticker)
@@ -279,5 +281,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
