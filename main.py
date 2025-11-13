@@ -150,7 +150,7 @@ def record_summary(day_index, ticker, condition_text, change_str, yesterday_str)
         entry = f"{ticker} | {condition_text} | {change_str} | {yesterday_str}"
         summary_log[day_index].append(entry)
 
-def check_conditions(ticker, price, day_indexes=[0]):
+def check_conditions(ticker, price, day_indexes=[0, 1 ,2]):
     df = get_ohlcv_cached(ticker)
     if df is None or len(df) < 125:
         return
@@ -281,6 +281,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
