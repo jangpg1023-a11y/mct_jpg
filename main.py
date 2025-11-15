@@ -302,7 +302,7 @@ async def d0_loop():
 
         send_past_summary()
         summary_log[0] = []  # 전송 후 초기화
-        await asyncio.sleep(300)  # 5분
+        await asyncio.sleep(3600)  # 1시간
 
 async def analyze_past_conditions():
     summary_log[1] = []
@@ -332,3 +332,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
