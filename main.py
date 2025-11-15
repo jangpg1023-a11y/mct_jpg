@@ -300,7 +300,6 @@ async def d0_loop():
                 print(f"가격 조회 실패: {ticker} - {e}")
             await asyncio.sleep(0.5)
 
-        send_past_summary()
         summary_log[0] = []  # 전송 후 초기화
         await asyncio.sleep(3600)  # 1시간
 
@@ -332,4 +331,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
