@@ -21,7 +21,7 @@ def send_message(text):
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
-def get_usdkrw():
+get_usdkrw():
     try:
         url = "https://finance.naver.com/marketindex/"
         res = requests.get(url)
@@ -145,12 +145,17 @@ def calculate_indicators(df):
     return df
 
 def record_summary(day_index, ticker, condition_text, change_str, yesterday_str):
-    tickers_in_log = [e.split(" | ")[0] for e in summary_log.get(day_index, [])]
-    if ticker not in tickers_in_log:
-        entry = f"{ticker} | {condition_text} | {change_str} | {yesterday_str}"
-        summary_log[day_index].append(entry)
+    if day_index not in summary_log:
+        summary_log[day_index] = []
 
-def check_conditions(ticker, price, day_indexes=[0, 1 ,2]):
+    entries = summary_log[day_index]
+    tickers_in_log = [entry.split(" | ")[0] for entry in entries]
+
+     if ticker not in tickers_in_log:
+        entry = f"{ticker} | {condition_text} | {change_str} | {yesterday_str}"
+        entries.append(entry)
+
+def check_conditions(ticker, price, day_indexes=[0]):
     df = get_ohlcv_cached(ticker)
     if df is None or len(df) < 125:
         return
@@ -193,24 +198,37 @@ def get_updown_ratio_by_day(day_offset):
 
     for ticker in tickers:
         try:
-            df = pyupbit.get_ohlcv(ticker, interval="day", count=2) if day_offset == 0 else get_ohlcv_cached(ticker)
+            # 실시간 분석: 오늘(D-day)
+            if day_offset == 0:
+                df = pyupbit.get_ohlcv(ticker, interval="day", count=2)
+            else:
+                df = get_ohlcv_cached(ticker)
+
             if df is None or len(df) < day_offset + 2:
                 continue
+
             row = df.iloc[-(day_offset + 1)]
             open_price = row['open']
             close_price = row['close']
             if open_price == 0:
                 continue
+
             rate = (close_price - open_price) / open_price * 100
             if rate > 0:
                 up_count += 1
             elif rate < 0:
                 down_count += 1
-        except:
+
+        except Exception as e:
+            print(f"❌ {ticker} 오류: {e}")
             continue
 
     total = up_count + down_count
-    return f"{round(up_count / total * 100, 1)}% ({up_count} / {down_count})" if total > 0 else ""
+    if total > 0:
+        up_ratio = round(up_count / total * 100, 1)
+        return f"{up_ratio}% ({up_count} / {down_count})"
+    else:
+        return ""
 
 def send_past_summary():
     emoji_map = {"BBD": "📉", "MA": "➖", "BBU": "📈"}
@@ -262,26 +280,46 @@ def send_past_summary():
 
     send_message(msg.strip())
 
-async def hourly_summary_loop():
+async def d0_loop():
     while True:
-        tickers = get_all_krw_tickers()
         summary_log[0] = []
-        summary_log[1] = []
-        summary_log[2] = []
-        for ticker in tickers:
-            price = pyupbit.get_current_price(ticker) or 0
-            check_conditions(ticker, price, day_indexes=[0, 1, 2])
+        for ticker in watchlist:
+            try:
+                price = pyupbit.get_current_price(ticker) or 0
+                check_conditions(ticker, price, day_indexes=[0])
+            except Exception as e:
+                print(f"가격 조회 실패: {ticker} - {e}")
             await asyncio.sleep(0.5)
+
         send_past_summary()
-        await asyncio.sleep(3600)  # 1시간 주기
+        await asyncio.sleep(60 * 5)  # 5분 주기
+
+async def analyze_past_conditions():
+    summary_log[1] = []
+    summary_log[2] = []
+    for ticker in watchlist:
+        price = pyupbit.get_current_price(ticker) or 0
+        check_conditions(ticker, price, day_indexes=[1, 2])
+        await asyncio.sleep(0.5)
+
+async def daily_summary_loop():
+    while True:
+        await analyze_past_conditions()
+        send_past_summary()시
+        await asyncio.sleep(60 * 60 )  # 1간 주기
 
 async def main():
+    global watchlist
+    watchlist = get_all_krw_tickers()
     send_message("📡 종목 감시 시작")
-    await hourly_summary_loop()
+
+    asyncio.create_task(daily_summary_loop())
+    asyncio.create_task(d0_loop())
+
+    while True:
+        await asyncio.sleep(60)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
 
 
