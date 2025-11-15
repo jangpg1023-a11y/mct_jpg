@@ -21,7 +21,7 @@ def send_message(text):
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
-get_usdkrw():
+def get_usdkrw():
     try:
         url = "https://finance.naver.com/marketindex/"
         res = requests.get(url)
@@ -321,5 +321,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
