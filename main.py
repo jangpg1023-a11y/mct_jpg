@@ -151,7 +151,7 @@ def record_summary(day_index, ticker, condition_text, change_str, yesterday_str)
     entries = summary_log[day_index]
     tickers_in_log = [entry.split(" | ")[0] for entry in entries]
 
-     if ticker not in tickers_in_log:
+    if ticker not in tickers_in_log:
         entry = f"{ticker} | {condition_text} | {change_str} | {yesterday_str}"
         entries.append(entry)
 
@@ -321,6 +321,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
