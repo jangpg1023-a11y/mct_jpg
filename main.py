@@ -21,6 +21,25 @@ def send_message(text):
     except Exception as e:
         print(f"[텔레그램 오류] {e}")
 
+def get_tick_size(price):
+    if price >= 2_000_000: return 1000
+    elif price >= 1_000_000: return 1000
+    elif price >= 500_000: return 500
+    elif price >= 100_000: return 100
+    elif price >= 50_000: return 50
+    elif price >= 10_000: return 10
+    elif price >= 5_000: return 5
+    elif price >= 1_000: return 1
+    elif price >= 100: return 1
+    elif price >= 10: return 0.1
+    elif price >= 1: return 0.01
+    elif price >= 0.1: return 0.001
+    elif price >= 0.01: return 0.0001
+    elif price >= 0.001: return 0.00001
+    elif price >= 0.0001: return 0.000001
+    elif price >= 0.00001: return 0.0000001
+    else: return 0.00000001
+
 def get_usdkrw():
     try:
         url = "https://finance.naver.com/marketindex/"
@@ -45,9 +64,7 @@ def get_bybit_day_rates():
         res = requests.get(url)
         data = res.json()
         ohlcv = data.get('result', {}).get('list', [])
-        today_rate = 0.0
-        yesterday_rate = 0.0
-        today_close = 0.0
+        today_rate = yesterday_rate = today_close = 0.0
 
         for candle in ohlcv:
             ts = int(candle[0]) // 1000
@@ -70,10 +87,10 @@ def get_bybit_day_rates():
 def get_btc_summary_block():
     try:
         usdkrw_today, usdkrw_yesterday = get_usdkrw()
-
         df = pyupbit.get_ohlcv("KRW-BTC", interval="day", count=2)
         if df is None or len(df) < 2:
             raise ValueError("UPBIT 일봉 데이터 부족")
+
         today_open = df.iloc[-1]['open']
         today_close = df.iloc[-1]['close']
         yesterday_open = df.iloc[-2]['open']
@@ -90,6 +107,7 @@ def get_btc_summary_block():
         df_hour = pyupbit.get_ohlcv("KRW-BTC", interval="minute60", count=17)
         if df_hour is None or len(df_hour) < 17:
             raise ValueError("UPBIT 시간봉 데이터 부족")
+
         changes = []
         for i in range(1, 17):
             open_price = df_hour.iloc[i - 1]['close']
@@ -97,11 +115,12 @@ def get_btc_summary_block():
             rate = round((close_price - open_price) / open_price * 100, 2)
             changes.append(rate)
 
-        lines = []
-        lines.append(f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})")
-        lines.append(f"UPBIT  {upbit_price / 1e8:.2f}억  {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)  ${upbit_usd:,}")
-        lines.append(f"BYBIT  {bybit_price_krw / 1e8:.2f}억  {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)  ${bybit_price_usd:,}")
-        lines.append("4H rate (1H rate)")
+        lines = [
+            f"📊₿TC info  💱 {usdkrw_today:.1f} ({usdkrw_yesterday:.1f})",
+            f"UPBIT  {upbit_price / 1e8:.2f}억  {upbit_today_rate:+.2f}% ({upbit_yesterday_rate:+.2f}%)  ${upbit_usd:,}",
+            f"BYBIT  {bybit_price_krw / 1e8:.2f}억  {bybit_today_rate:+.2f}% ({bybit_yesterday_rate:+.2f}%)  ${bybit_price_usd:,}",
+            "4H rate (1H rate)"
+        ]
         for i in range(0, len(changes), 4):
             block = changes[i:i+4]
             block_total = round(sum(block), 2)
@@ -147,10 +166,8 @@ def calculate_indicators(df):
 def record_summary(day_index, ticker, condition_text, change_str, yesterday_str):
     if day_index not in summary_log:
         summary_log[day_index] = []
-
     entries = summary_log[day_index]
     tickers_in_log = [entry.split(" | ")[0] for entry in entries]
-
     if ticker not in tickers_in_log:
         entry = f"{ticker} | {condition_text} | {change_str} | {yesterday_str}"
         entries.append(entry)
@@ -193,17 +210,11 @@ def check_conditions(ticker, price, day_indexes=[0]):
 
 def get_updown_ratio_by_day(day_offset):
     tickers = get_all_krw_tickers()
-    up_count = 0
-    down_count = 0
+    up_count = down_count = 0
 
     for ticker in tickers:
         try:
-            # 실시간 분석: 오늘(D-day)
-            if day_offset == 0:
-                df = pyupbit.get_ohlcv(ticker, interval="day", count=2)
-            else:
-                df = get_ohlcv_cached(ticker)
-
+            df = get_ohlcv_cached(ticker)
             if df is None or len(df) < day_offset + 2:
                 continue
 
@@ -218,7 +229,6 @@ def get_updown_ratio_by_day(day_offset):
                 up_count += 1
             elif rate < 0:
                 down_count += 1
-
         except Exception as e:
             print(f"❌ {ticker} 오류: {e}")
             continue
@@ -282,7 +292,6 @@ def send_past_summary():
 
 async def d0_loop():
     while True:
-        summary_log[0] = []
         for ticker in watchlist:
             try:
                 price = pyupbit.get_current_price(ticker) or 0
@@ -292,13 +301,15 @@ async def d0_loop():
             await asyncio.sleep(0.5)
 
         send_past_summary()
-        await asyncio.sleep(60 * 5)  # 5분 주기
+        summary_log[0] = []  # 전송 후 초기화
+        await asyncio.sleep(300)  # 5분
 
 async def analyze_past_conditions():
     summary_log[1] = []
     summary_log[2] = []
     for ticker in watchlist:
-        price = pyupbit.get_current_price(ticker) or 0
+        df = get_ohlcv_cached(ticker)
+        price = df['close'].iloc[-1] if df is not None else 0
         check_conditions(ticker, price, day_indexes=[1, 2])
         await asyncio.sleep(0.5)
 
@@ -306,7 +317,7 @@ async def daily_summary_loop():
     while True:
         await analyze_past_conditions()
         send_past_summary()
-        await asyncio.sleep(60 * 60)  # 1간 주기
+        await asyncio.sleep(3600)  # 1시간
 
 async def main():
     global watchlist
@@ -321,8 +332,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
-
