@@ -305,8 +305,8 @@ async def analyze_past_conditions():
 async def daily_summary_loop():
     while True:
         await analyze_past_conditions()
-        send_past_summary()시
-        await asyncio.sleep(60 * 60 )  # 1간 주기
+        send_past_summary()
+        await asyncio.sleep(60 * 60)  # 1간 주기
 
 async def main():
     global watchlist
@@ -321,6 +321,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
