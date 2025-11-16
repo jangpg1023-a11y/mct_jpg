@@ -287,12 +287,12 @@ def polling_loop():
 
         time.sleep(3)
 
-# ⏱️ 30분마다 시장 스캔 및 알림
+# ⏱️ 60분마다 시장 스캔 및 알림
 def status_loop():
     while True:
         scan_market()
         send_status()
-        time.sleep(1800)
+        time.sleep(3600)
 
 # 🧩 실행부
 if __name__ == '__main__':
@@ -301,6 +301,7 @@ if __name__ == '__main__':
     time.sleep(5)
     threading.Thread(target=polling_loop).start()
     threading.Thread(target=status_loop).start()
+
 
 
 
