@@ -105,12 +105,20 @@ def scan_status():
         if p is None or pd.isna(bd) or pd.isna(ma):
             continue
 
+        # 오늘 상승률
         change = ((p - prev['close']) / prev['close']) * 100
+
+        # 전일 상승률
+        if len(df) >= 3:
+            prev_change = ((prev['close'] - df.iloc[-3]['close']) / df.iloc[-3]['close']) * 100
+        else:
+            prev_change = 0.0
+
         breakout_close = None
         breakout_date = None
         days_since = None
 
-        # 🔍 돌파 탐색 (과거 7일 이내)
+        # 돌파 탐색
         for i in range(-2, -10, -1):
             if abs(i) >= len(df):
                 continue
@@ -125,37 +133,46 @@ def scan_status():
                     days_since = (df.index[-1] - breakout_date).days
                     break
 
-        # 📉 전환 조건: 전일 low는 지지선 위, 오늘 low는 지지선 아래
+        # 전환 조건
         is_reversal = False
         if prev['low'] > prev['BBD'] and prev['low'] > prev['MA7']:
             if cur['low'] < cur['BBD'] and cur['low'] < cur['MA7']:
                 is_reversal = True
 
-        # 📌 지지 조건: 전환이 아니고, MA7 또는 BBD 위에 있음
+        # 지지 조건
         is_support = False
         if breakout_close and not is_reversal:
             if p > cur['MA7'] or p > cur['BBD']:
                 is_support = True
 
-        # 🟢 녹색불 조건: 돌파가보다 높을 때만
+        # 녹색불 조건
         is_green = False
         if breakout_close and p > breakout_close:
             is_green = True
 
-        # 👁 감시 종목: 전일 종가가 지지선 아래, 오늘 상승
+        # 감시 조건 복원
         if prev['close'] < prev['BBD'] and prev['close'] < prev['MA7'] and change > 0:
             flag = " 🟢" if is_green else ""
-            watch_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}%{flag}"))
+            watch_lines.append((
+                change,
+                f"{name}: {format_price(p)}원 {change:+.2f}% ({prev_change:+.2f}%)" + flag
+            ))
 
-        # ✅ 지지 종목 출력 (전환 제외)
+        # 지지 종목
         if is_support and days_since is not None:
             flag = " 🟢" if is_green else ""
-            support_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}"))
+            support_lines.append((
+                change,
+                f"{name}: {format_price(p)}원 {change:+.2f}% ({prev_change:+.2f}%) (D+{days_since})" + flag
+            ))
 
-        # 🔻 전환 종목 출력
+        # 전환 종목
         if is_reversal:
             flag = " 🟢" if is_green else ""
-            reversal_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}%{flag}"))
+            reversal_lines.append((
+                change,
+                f"{name}: {format_price(p)}원 {change:+.2f}% ({prev_change:+.2f}%)" + flag
+            ))
 
     for _, line in sorted(watch_lines, key=lambda x: x[0], reverse=True):
         msg += line + "\n"
@@ -169,7 +186,7 @@ def scan_status():
         msg += line + "\n"
 
     send(msg.strip())
-
+    
 # ⏱️ 루프 실행
 def status_loop():
     while True:
@@ -181,4 +198,5 @@ if __name__ == '__main__':
     keep_alive()
     time.sleep(5)
     threading.Thread(target=status_loop).start()
+
 
