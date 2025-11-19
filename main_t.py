@@ -89,10 +89,11 @@ def get_data(ticker):
 
 # 🔍 전체 시장 스캔
 def scan_market():
-    global watchlist, support_candidates, reversal_candidates
+    global watchlist, support_candidates, reversal_candidates, green_flag
     watchlist.clear()
     support_candidates.clear()
     reversal_candidates.clear()
+    green_flag.clear()  # 이전 상태 초기화
 
     tickers = pyupbit.get_tickers(fiat="KRW")
     for t in tickers:
@@ -105,12 +106,17 @@ def scan_market():
         p = pyupbit.get_current_price(t)
         if p is None or pd.isna(bd) or pd.isna(ma): continue
 
+        # 감시 종목 조건
         if prev['close'] < bd and prev['close'] < ma:
             watchlist.add(t)
+            if p > bd and p > ma:
+                green_flag[t] = True
 
+        # 전환 종목 조건
         if prev['close'] > bd and prev['close'] > ma and p < bd and p < ma:
             reversal_candidates.add(t)
 
+        # 지지 종목 조건
         for i in range(-2, -9, -1):
             row = df.iloc[i]
             if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
@@ -121,6 +127,7 @@ def scan_market():
                 days_since = (today - breakout_date).days
                 if p < breakout_close and p > ma and days_since <= 7:
                     support_candidates.add(t)
+                    green_flag[t] = True
                 break
 
 # 📬 상태 메시지 전송
@@ -223,3 +230,4 @@ if __name__ == '__main__':
     scan_market()
     time.sleep(5)
     threading.Thread(target=status_loop).start()
+
