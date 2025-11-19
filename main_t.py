@@ -21,10 +21,8 @@ TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 ohlcv_cache = OrderedDict()
 MAX_CACHE = 300
 TTL = 3600
-watchlist = set()
-support_candidates = set()
-reversal_candidates = set()
 green_flag = {}
+reversal_candidates = set()
 
 # 📤 텔레그램 메시지
 def send(msg):
@@ -87,147 +85,100 @@ def get_data(ticker):
     except:
         return None
 
-# 🔍 전체 시장 스캔
-def scan_market():
-    global watchlist, support_candidates, reversal_candidates, green_flag
-    watchlist.clear()
-    support_candidates.clear()
-    reversal_candidates.clear()
-    green_flag.clear()  # 이전 상태 초기화
+# 🧠 전략 감시 및 출력 통합
+def scan_status():
+    msg = "📊 감시 종목\n"
+    watch_lines = []
+    support_lines = []
+    reversal_lines = []
 
     tickers = pyupbit.get_tickers(fiat="KRW")
     for t in tickers:
         df = get_data(t)
-        if df is None or len(df) < 8: continue
+        if df is None or len(df) < 10: continue
+
         cur = df.iloc[-1]
         prev = df.iloc[-2]
+        p = pyupbit.get_current_price(t)
         bd = cur.get('BBD')
         ma = cur.get('MA7')
-        p = pyupbit.get_current_price(t)
-        if p is None or pd.isna(bd) or pd.isna(ma): continue
-
-        # 감시 종목 조건
-        if prev['close'] < bd and prev['close'] < ma:
-            watchlist.add(t)
-            if p > bd and p > ma:
-                green_flag[t] = True
-
-        # 전환 종목 조건
-        if prev['close'] > bd and prev['close'] > ma and p < bd and p < ma:
-            reversal_candidates.add(t)
-
-        # 지지 종목 조건
-        for i in range(-2, -9, -1):
-            row = df.iloc[i]
-            if pd.isna(row['BBD']) or pd.isna(row['MA7']): continue
-            if row['close'] > row['BBD'] and row['close'] > row['MA7']:
-                breakout_close = row['close']
-                breakout_date = df.index[i]
-                today = df.index[-1]
-                days_since = (today - breakout_date).days
-                if p < breakout_close and p > ma and days_since <= 7:
-                    support_candidates.add(t)
-                    green_flag[t] = True
-                break
-
-# 📬 상태 메시지 전송
-def send_status():
-    msg = "📊 감시 종목\n"
-    watch_lines = []
-    for t in watchlist:
-        df = get_data(t)
-        if df is None or len(df) < 2: continue
-        cur = df.iloc[-1]
-        prev = df.iloc[-2]
-        bd = cur.get('BBD')
-        ma = cur.get('MA7')
-        p = pyupbit.get_current_price(t)
         name = t.replace("KRW-", "")
         if p is None or pd.isna(bd) or pd.isna(ma): continue
-        change = ((p - prev['close']) / prev['close']) * 100
-        flag = " 🟢" if green_flag.get(t, False) else ""
 
-        if change > 0:  # 상승률이 양수인 종목만 표시
+        change = ((p - prev['close']) / prev['close']) * 100
+        breakout_close = None
+        breakout_date = None
+        days_since = None
+
+        # 돌파 조건 탐색
+        for i in range(-2, -10, -1):
+            if abs(i) >= len(df): continue
+            row = df.iloc[i]
+            prev_row = df.iloc[i - 1]
+            if pd.isna([row['BBD'], row['MA7'], prev_row['BBD'], prev_row['MA7']]).any(): continue
+            if prev_row['close'] < prev_row['BBD'] and prev_row['close'] < prev_row['MA7']:
+                if row['close'] > row['BBD'] and row['close'] > row['MA7']:
+                    breakout_close = row['close']
+                    breakout_date = df.index[i]
+                    days_since = (df.index[-1] - breakout_date).days
+                    break
+
+        # 상태 판단
+        is_support = False
+        is_reversal = False
+        is_green = False
+
+        if breakout_close and p < breakout_close:
+            if p > bd or p > ma:
+                is_support = True
+                if p > bd and p > ma:
+                    is_green = True
+            elif p < bd and p < ma and prev['low'] > prev.get('BBD') and prev['low'] > prev.get('MA7'):
+                is_reversal = True
+        elif p > bd and p > ma:
+            is_green = True
+
+        if is_green:
+            green_flag[t] = True
+        if is_reversal:
+            reversal_candidates.add(t)
+
+        # 감시 종목 출력
+        if prev['close'] < bd and prev['close'] < ma and change > 0:
+            flag = " 🟢" if is_green else ""
             watch_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}%{flag}"))
+
+        # 지지 종목 출력 (전환 상태 제외)
+        if is_support and t not in reversal_candidates and days_since is not None and p > cur.get('MA7'):
+            flag = " 🟢" if is_green else ""
+            support_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}"))
+
+        # 전환 종목 출력
+        if t in reversal_candidates:
+            flag = " 🟢" if is_green else ""
+            reversal_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}%{flag}"))
 
     for _, line in sorted(watch_lines, key=lambda x: x[0], reverse=True):
         msg += line + "\n"
 
     msg += "\n📌 지지 종목\n"
-    support_lines = []
-    for t in support_candidates:
-        df = get_data(t)
-        if df is None or len(df) < 10: continue
-        p = pyupbit.get_current_price(t)
-        name = t.replace("KRW-", "")
-        if p is None: continue
-
-        breakout_close = None
-        breakout_date = None
-        days_since = None
-
-        for i in range(-2, -10, -1):
-            if abs(i) >= len(df): continue
-            cur = df.iloc[i]
-            prev = df.iloc[i - 1]
-            if pd.isna([cur['BBD'], cur['MA7'], prev['BBD'], prev['MA7']]).any(): continue
-
-            if prev['close'] < prev['BBD'] and prev['close'] < prev['MA7']:
-                if cur['close'] > cur['BBD'] and cur['close'] > cur['MA7']:
-                    breakout_close = cur['close']
-                    breakout_date = df.index[i]
-                    days_since = (df.index[-1] - breakout_date).days
-                    break
-
-        if breakout_close is None or days_since is None: continue
-        ma7_today = df.iloc[-1]['MA7']
-        if pd.isna(ma7_today): continue
-
-        change = ((p - df.iloc[-2]['close']) / df.iloc[-2]['close']) * 100
-        flag = " 🟢" if green_flag.get(t, False) else ""
-
-        if (p < breakout_close and p > ma7_today and days_since <= 7) or green_flag.get(t, False):
-            support_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}"))
-
     for _, line in sorted(support_lines, key=lambda x: x[0], reverse=True):
         msg += line + "\n"
 
     msg += "\n📉 전환 종목\n"
-    reversal_lines = []
-    for t in reversal_candidates:
-        df = get_data(t)
-        if df is None or len(df) < 2: continue
-        cur = df.iloc[-1]
-        prev = df.iloc[-2]
-        bd_prev = prev.get('BBD')
-        ma_prev = prev.get('MA7')
-        bd_cur = cur.get('BBD')
-        ma_cur = cur.get('MA7')
-        p = pyupbit.get_current_price(t)
-        name = t.replace("KRW-", "")
-        if p is None or pd.isna(bd_prev) or pd.isna(ma_prev) or pd.isna(bd_cur) or pd.isna(ma_cur): continue
-
-        if (prev['close'] > bd_prev or prev['close'] > ma_prev) and (p < bd_cur and p < ma_cur):
-            change = ((p - prev['close']) / prev['close']) * 100
-            flag = " 🟢" if green_flag.get(t, False) else ""
-            reversal_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}%{flag}"))
-
     for _, line in sorted(reversal_lines, key=lambda x: x[0], reverse=True):
         msg += line + "\n"
 
     send(msg.strip())
 
-# ⏱️ 60분마다 시장 스캔 및 알림
+# ⏱️ 루프 실행
 def status_loop():
     while True:
-        scan_market()
-        send_status()
+        scan_status()
         time.sleep(3600)
 
 # 🧩 실행부
 if __name__ == '__main__':
     keep_alive()
-    scan_market()
     time.sleep(5)
     threading.Thread(target=status_loop).start()
-
