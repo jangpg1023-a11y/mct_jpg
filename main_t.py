@@ -17,12 +17,10 @@ BOT_TOKEN = os.environ['BOT_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 TELEGRAM_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
 
-# 🧠 상태 변수
+# 📦 캐시 및 설정
 ohlcv_cache = OrderedDict()
 MAX_CACHE = 300
 TTL = 3600
-green_flag = {}
-reversal_candidates = set()
 
 # 📤 텔레그램 메시지
 def send(msg):
@@ -85,12 +83,15 @@ def get_data(ticker):
     except:
         return None
 
-# 🧠 전략 감시 및 출력 통합
+# 🧠 전략 스캔 및 출력
 def scan_status():
     msg = "📊 감시 종목\n"
     watch_lines = []
     support_lines = []
     reversal_lines = []
+
+    green_flag = {}
+    reversal_candidates = set()
 
     tickers = pyupbit.get_tickers(fiat="KRW")
     for t in tickers:
