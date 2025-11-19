@@ -90,13 +90,11 @@ def scan_status():
     support_lines = []
     reversal_lines = []
 
-    green_flag = {}
-    reversal_candidates = set()
-
     tickers = pyupbit.get_tickers(fiat="KRW")
     for t in tickers:
         df = get_data(t)
-        if df is None or len(df) < 10: continue
+        if df is None or len(df) < 10:
+            continue
 
         cur = df.iloc[-1]
         prev = df.iloc[-2]
@@ -104,19 +102,22 @@ def scan_status():
         bd = cur.get('BBD')
         ma = cur.get('MA7')
         name = t.replace("KRW-", "")
-        if p is None or pd.isna(bd) or pd.isna(ma): continue
+        if p is None or pd.isna(bd) or pd.isna(ma):
+            continue
 
         change = ((p - prev['close']) / prev['close']) * 100
         breakout_close = None
         breakout_date = None
         days_since = None
 
-        # 돌파 조건 탐색
+        # 🔍 돌파 탐색 (과거 7일 이내)
         for i in range(-2, -10, -1):
-            if abs(i) >= len(df): continue
+            if abs(i) >= len(df):
+                continue
             row = df.iloc[i]
             prev_row = df.iloc[i - 1]
-            if pd.isna([row['BBD'], row['MA7'], prev_row['BBD'], prev_row['MA7']]).any(): continue
+            if pd.isna([row['BBD'], row['MA7'], prev_row['BBD'], prev_row['MA7']]).any():
+                continue
             if prev_row['close'] < prev_row['BBD'] and prev_row['close'] < prev_row['MA7']:
                 if row['close'] > row['BBD'] and row['close'] > row['MA7']:
                     breakout_close = row['close']
@@ -124,38 +125,35 @@ def scan_status():
                     days_since = (df.index[-1] - breakout_date).days
                     break
 
-        # 상태 판단
-        is_support = False
+        # 📉 전환 조건: 전일 low는 지지선 위, 오늘 low는 지지선 아래
         is_reversal = False
-        is_green = False
-
-        if breakout_close and p < breakout_close:
-            if p > bd or p > ma:
-                is_support = True
-                if p > bd and p > ma:
-                    is_green = True
-            elif p < bd and p < ma and prev['low'] > prev.get('BBD') and prev['low'] > prev.get('MA7'):
+        if prev['low'] > prev['BBD'] and prev['low'] > prev['MA7']:
+            if cur['low'] < cur['BBD'] and cur['low'] < cur['MA7']:
                 is_reversal = True
-        elif p > bd and p > ma:
+
+        # 📌 지지 조건: 전환이 아니고, MA7 또는 BBD 위에 있음
+        is_support = False
+        if breakout_close and not is_reversal:
+            if p > cur['MA7'] or p > cur['BBD']:
+                is_support = True
+
+        # 🟢 녹색불 조건: 돌파가보다 높을 때만
+        is_green = False
+        if breakout_close and p > breakout_close:
             is_green = True
 
-        if is_green:
-            green_flag[t] = True
-        if is_reversal:
-            reversal_candidates.add(t)
-
-        # 감시 종목 출력
-        if prev['close'] < bd and prev['close'] < ma and change > 0:
+        # 👁 감시 종목: 전일 종가가 지지선 아래, 오늘 상승
+        if prev['close'] < prev['BBD'] and prev['close'] < prev['MA7'] and change > 0:
             flag = " 🟢" if is_green else ""
             watch_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}%{flag}"))
 
-        # 지지 종목 출력 (전환 상태 제외)
-        if is_support and t not in reversal_candidates and days_since is not None and p > cur.get('MA7'):
+        # ✅ 지지 종목 출력 (전환 제외)
+        if is_support and days_since is not None:
             flag = " 🟢" if is_green else ""
             support_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}% (D+{days_since}){flag}"))
 
-        # 전환 종목 출력
-        if t in reversal_candidates:
+        # 🔻 전환 종목 출력
+        if is_reversal:
             flag = " 🟢" if is_green else ""
             reversal_lines.append((change, f"{name}: {format_price(p)}원 {change:+.2f}%{flag}"))
 
@@ -183,3 +181,4 @@ if __name__ == '__main__':
     keep_alive()
     time.sleep(5)
     threading.Thread(target=status_loop).start()
+
