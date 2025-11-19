@@ -118,7 +118,7 @@ def scan_status():
         breakout_date = None
         days_since = None
 
-        # 돌파 탐색
+        # 돌파 탐색: 과거 MA7 & BBD 동시 돌파
         for i in range(-2, -10, -1):
             if abs(i) >= len(df):
                 continue
@@ -133,24 +133,28 @@ def scan_status():
                     days_since = (df.index[-1] - breakout_date).days
                     break
 
-        # 전환 조건
+        # 전환 조건: 전일 종가가 지지선 위 + 오늘 저가가 지지선 아래
         is_reversal = False
-        if prev['low'] > prev['BBD'] and prev['low'] > prev['MA7']:
+        if prev['close'] > prev['BBD'] and prev['close'] > prev['MA7']:
             if cur['low'] < cur['BBD'] and cur['low'] < cur['MA7']:
                 is_reversal = True
 
-        # 지지 조건
+        # 지지 조건: 돌파 이후 + 전환 제외 + 현재가가 MA7 or BBD 위
         is_support = False
         if breakout_close and not is_reversal:
             if p > cur['MA7'] or p > cur['BBD']:
                 is_support = True
 
-        # 녹색불 조건
+        # 녹색불 조건: 전략별 분기
         is_green = False
-        if breakout_close and p > breakout_close:
-            is_green = True
+        if breakout_close:
+            if is_support:
+                if p > breakout_close:
+                    is_green = True
+            elif p > breakout_close and p > cur['MA7'] and p > cur['BBD']:
+                is_green = True
 
-        # 감시 조건 복원
+        # 감시 조건: 전일 종가가 지지선 아래 + 오늘 상승
         if prev['close'] < prev['BBD'] and prev['close'] < prev['MA7'] and change > 0:
             flag = " 🟢" if is_green else ""
             watch_lines.append((
@@ -198,5 +202,6 @@ if __name__ == '__main__':
     keep_alive()
     time.sleep(5)
     threading.Thread(target=status_loop).start()
+
 
 
