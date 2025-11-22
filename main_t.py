@@ -85,7 +85,7 @@ def get_data(ticker):
 
 # 🧠 전략 스캔 및 출력
 def scan_status():
-    msg = "📊 감시 종목\n"
+    msg = "📡 감시 종목(+%)\n"
     watch_lines = []
     support_lines = []
     reversal_lines = []
@@ -181,17 +181,17 @@ def scan_status():
     for _, line in sorted(watch_lines, key=lambda x: x[0], reverse=True):
         msg += line + "\n"
 
-    msg += "\n📌 지지 종목\n"
+    msg += "\n⏱️ 지지 종목\n"
     for _, line in sorted(support_lines, key=lambda x: x[0], reverse=True):
         msg += line + "\n"
 
-    msg += "\n📉 전환 종목\n"
+    msg += "\n🔄 전환 종목\n"
     for _, line in sorted(reversal_lines, key=lambda x: x[0], reverse=True):
         msg += line + "\n"
 
     send(msg.strip())
     
-# ⏱️ 루프 실행
+# 루프 실행
 def status_loop():
     while True:
         scan_status()
@@ -202,6 +202,7 @@ if __name__ == '__main__':
     keep_alive()
     time.sleep(5)
     threading.Thread(target=status_loop).start()
+
 
 
 
